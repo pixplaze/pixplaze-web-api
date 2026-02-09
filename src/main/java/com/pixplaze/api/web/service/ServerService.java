@@ -1,10 +1,15 @@
 package com.pixplaze.api.web.service;
 
+import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
+import com.pixplaze.api.ext.data.server.MinecraftServerStateInfo;
 import com.pixplaze.api.ext.data.server.PixplazeServerInfo;
+import com.pixplaze.api.web.exception.MinecraftServerIsUnavailableException;
 import com.pixplaze.api.web.exception.NotFoundException;
 import com.pixplaze.api.web.repository.ServerRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.ResourceAccessException;
 
 import java.util.*;
 
@@ -36,14 +41,28 @@ public class ServerService {
     }
 
     private PixplazeServerInfo fillWithMinecraftServerInfo(PixplazeServerInfo pixplazeServerInfo, boolean fetchThumbnail) {
-        final var serverApi = getServerApi(pixplazeServerInfo);
-        final var minecraftServerInfo = serverApi.getServerInfo(fetchThumbnail);
+        try {
+            final var serverApi = getServerApi(pixplazeServerInfo);
+            final var minecraftServerInfo = serverApi.getServerInfo(fetchThumbnail);
 
-        return new PixplazeServerInfo(
-                pixplazeServerInfo.host(),
-                pixplazeServerInfo.port(),
-                minecraftServerInfo
-        );
+            return new PixplazeServerInfo(
+                    pixplazeServerInfo.host(),
+                    pixplazeServerInfo.port(),
+                    minecraftServerInfo
+            );
+        } catch (ResourceAccessException | HttpServerErrorException.InternalServerError e) {
+            final var minecraftServerInfo = new MinecraftServerInfo(
+                    pixplazeServerInfo.host(),
+                    pixplazeServerInfo.port(),
+                    new MinecraftServerStateInfo(false)
+            );
+
+            return new PixplazeServerInfo(
+                    pixplazeServerInfo.host(),
+                    pixplazeServerInfo.port(),
+                    minecraftServerInfo
+            );
+        }
     }
 
     private MinecraftServerApiService getServerApi(PixplazeServerInfo pixplazeServerInfo) {

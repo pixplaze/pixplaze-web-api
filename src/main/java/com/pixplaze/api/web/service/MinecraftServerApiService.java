@@ -27,8 +27,7 @@ public class MinecraftServerApiService implements MinecraftServerApi {
         final var uri = UriComponentsBuilder.fromUriString("/server")
                 .queryParam("thumbnail", fetchThumbnail)
                 .toUriString();
-        return restClient.get()
-                .uri(uri)
+        return restClient.get().uri(uri)
                 .retrieve()
                 .body(MinecraftServerInfo.class);
     }
