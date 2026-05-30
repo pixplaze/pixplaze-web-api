@@ -1,0 +1,41 @@
+services:
+
+  db:
+    image: postgres:16
+    container_name: pixplaze-db
+    restart: always
+    environment:
+      POSTGRES_DB: ${PIXPLAZE_DB}
+      POSTGRES_USER: ${PIXPLAZE_DB_USERNAME}
+      POSTGRES_PASSWORD: ${PIXPLAZE_DB_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PIXPLAZE_DB_USERNAME} -d ${PIXPLAZE_DB}"]
+      interval: "5s"
+      timeout: "5s"
+      retries: 3
+    ports:
+      - "5432:5432"
+    volumes:
+      - pixplaze_db_data:/var/lib/postgresql/data
+
+  api:
+    image: pixplaze-web-api
+    build:
+      context: .
+      dockerfile: Dockerfile
+#    volumes:
+#      - ~/.m2/:/root/.m2
+    container_name: pixplaze-web-api
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${PIXPLAZE_DB}
+      SPRING_DATASOURCE_USERNAME: ${PIXPLAZE_DB_USERNAME}
+      SPRING_DATASOURCE_PASSWORD: ${PIXPLAZE_DB_PASSWORD}
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+
+volumes:
+  pixplaze_db_data:
