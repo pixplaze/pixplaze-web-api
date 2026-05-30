@@ -1,0 +1,38 @@
+server:
+  port: 8080
+spring:
+  datasource:
+    url: ${PIXPLAZE_DB_URL}
+    username: ${PIXPLAZE_DB_USERNAME}
+    password: ${PIXPLAZE_DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: true
+  application:
+    name: "pixplaze-web-api"
+app:
+  token:
+    access:
+      expiration: 2400
+      signing:
+        key: ${JWT_ACCESS_SECRET_KEY}
+    refresh:
+      expiration: 30
+      signing:
+        key: ${JWT_REFRESH_SECRET_KEY}
+  cors:
+    allowed-origins:
+      - http://localhost:5173
+      - https://pixplaze.com
+      - https://pixplaze.net
+    allowed-methods:
+      - GET
+      - POST
+      - PUT
+      - DELETE
+      - OPTIONS
+    allowed-headers:
+      - "*"
+    allow-credentials: true

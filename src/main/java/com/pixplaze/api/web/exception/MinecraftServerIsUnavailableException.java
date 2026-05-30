@@ -12,8 +12,8 @@ public class MinecraftServerIsUnavailableException extends RuntimeException {
 
   public MinecraftServerIsUnavailableException(MinecraftServerInfo minecraftServerInfo) {
     this("The Minecraft server at %s:%s is unavailable or in maintenance mode".formatted(
-            minecraftServerInfo.address(),
-            minecraftServerInfo.port()
+            minecraftServerInfo.host(),
+            minecraftServerInfo.ports()
     ));
   }
 }

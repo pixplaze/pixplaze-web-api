@@ -1,0 +1,4 @@
+CREATE TABLE minecraft_servers (
+    id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    description VARCHAR(128) NOT NULL
+)
