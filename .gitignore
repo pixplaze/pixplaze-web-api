@@ -39,3 +39,6 @@ mvnw.cmd
 
 .m2/
 .env
+
+### Private DB data ###
+src/main/resources/db/migration/R__insert_values_voucher_code.sql
