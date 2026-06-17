@@ -1,7 +1,7 @@
 package com.pixplaze.api.web.service;
 
 import com.pixplaze.api.web.data.VoucherCode;
-import com.pixplaze.api.web.data.user.User;
+import com.pixplaze.api.web.data.user.Profile;
 import com.pixplaze.api.web.exception.voucher.VoucherCodeValidationException;
 import com.pixplaze.api.web.repository.VoucherCodeRepository;
 import lombok.RequiredArgsConstructor;
@@ -35,8 +35,8 @@ public class VoucherCodeService {
         voucherCodeRepository.delete(voucherCode.id());
     }
 
-    public void activate(VoucherCode voucherCode, User user) {
-        voucherCodeRepository.activate(voucherCode, user);
+    public void activate(VoucherCode voucherCode, Profile profile) {
+        voucherCodeRepository.activate(voucherCode, profile);
     }
 
     /// Validates and loads voucher code DTO
@@ -59,7 +59,7 @@ public class VoucherCodeService {
             throw new VoucherCodeValidationException("Voucher code must not be null!");
         }
 
-        if (!isVoucherCodeMathPattern(code)) {
+        if (!isVoucherCodeMatchPattern(code)) {
             throw new VoucherCodeValidationException("Voucher code '%s' does not match pattern!".formatted(code));
         }
 
@@ -100,7 +100,7 @@ public class VoucherCodeService {
         return Objects.nonNull(voucherCode);
     }
 
-    private boolean isVoucherCodeMathPattern(String code) {
+    private boolean isVoucherCodeMatchPattern(String code) {
         final var pattern = Pattern.compile("[A-Z0-9]{8}");
         return pattern.matcher(code).matches();
     }

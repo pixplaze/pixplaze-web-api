@@ -24,9 +24,10 @@ app:
         key: ${JWT_REFRESH_SECRET_KEY}
   cors:
     allowed-origins:
-      - http://localhost:5173
-      - https://pixplaze.com
-      - https://pixplaze.net
+      - "*"
+#      - http://localhost:5173
+#      - https://pixplaze.com
+#      - https://pixplaze.net
     allowed-methods:
       - GET
       - POST

@@ -1,8 +1,9 @@
 package com.pixplaze.api.web.configuration.security;
 
+import com.pixplaze.api.ext.data.Authority;
 import com.pixplaze.api.web.configuration.properties.CorsProperties;
 import com.pixplaze.api.web.configuration.security.filter.JwtAuthenticationFilter;
-import com.pixplaze.api.web.data.user.User;
+import com.pixplaze.api.web.data.user.Profile;
 import com.pixplaze.api.web.service.ExceptionHandlerService;
 import com.pixplaze.api.web.service.UserService;
 import com.pixplaze.api.web.service.auth.AccessTokenService;
@@ -53,7 +54,7 @@ public class SecurityConfiguration {
     private void configureCors(CorsConfigurer<HttpSecurity> corsConfigurer) {
         final var corsConfiguration = new CorsConfiguration();
 
-        corsConfiguration.setAllowedOrigins(corsProperties.allowedOrigins());
+        corsConfiguration.setAllowedOriginPatterns(corsProperties.allowedOrigins());
         corsConfiguration.setAllowedMethods(corsProperties.allowedMethods());
         corsConfiguration.setAllowedHeaders(corsProperties.allowedHeaders());
         corsConfiguration.setAllowCredentials(corsProperties.allowCredentials());
@@ -66,8 +67,9 @@ public class SecurityConfiguration {
     }
 
     private void configureHttpRequests(AuthorizeHttpRequestsConfigurer<HttpSecurity>.AuthorizationManagerRequestMatcherRegistry auth) {
+        auth.requestMatchers("/auth/device/confirm").authenticated();
         auth.requestMatchers("/auth/**").permitAll();
-        auth.requestMatchers("/vouchers/validate/invite/*").permitAll();
+        auth.requestMatchers("/vouchers/invite/**").permitAll();
         auth.requestMatchers("/error/**").permitAll();
         auth.requestMatchers("/swagger-ui/**", "/swagger-resources/*", "/v3/api-docs/**").permitAll();
         auth.requestMatchers("/endpoint", "/admin/**").hasRole("ADMIN");
@@ -85,14 +87,14 @@ public class SecurityConfiguration {
 
     @Bean
     @RequestScope
-    public User currentUser() {
+    public Profile currentUser() {
         final var authentication = SecurityContextHolder.getContext().getAuthentication();
 
         if (authentication == null || !authentication.isAuthenticated() || authentication instanceof AnonymousAuthenticationToken) {
             return null;
         }
 
-        return (User) authentication.getPrincipal();
+        return (Profile) authentication.getPrincipal();
     }
 
     @Bean

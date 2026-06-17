@@ -1,14 +1,19 @@
 package com.pixplaze.api.web.controller;
 
+import com.pixplaze.api.ext.data.Authority;
+import com.pixplaze.api.ext.data.auth.AuthorizationTokenInfo;
+import com.pixplaze.api.ext.data.auth.DeviceResponseInfo;
+import com.pixplaze.api.web.data.dto.DeviceConfirmRequestInfo;
 import com.pixplaze.api.web.data.dto.ErrorResponseInfo;
-import com.pixplaze.api.web.data.dto.JwtAuthenticationResponseInfo;
 import com.pixplaze.api.web.data.dto.SignInRequestInfo;
 import com.pixplaze.api.web.data.dto.SignUpRequestInfo;
+import com.pixplaze.api.web.data.user.Profile;
+import com.pixplaze.api.web.exception.DeviceAuthorizationException;
 import com.pixplaze.api.web.exception.InvalidInviteCodeException;
 import com.pixplaze.api.web.exception.http.NotImplementedException;
 import com.pixplaze.api.web.exception.voucher.VoucherCodeValidationException;
-import com.pixplaze.api.web.service.AuthenticationService;
 import com.pixplaze.api.web.service.ExceptionHandlerService;
+import com.pixplaze.api.web.service.auth.AuthenticationService;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.IncorrectClaimException;
 import io.jsonwebtoken.MalformedJwtException;
@@ -19,14 +24,20 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import jakarta.websocket.server.PathParam;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
+import tools.jackson.databind.json.JsonMapper;
+
+import java.util.Map;
 
 @Slf4j
 @RestController
@@ -38,16 +49,17 @@ public class AuthenticationController {
 
     private final ExceptionHandlerService exceptionHandlerService;
     private final AuthenticationService authenticationService;
+    private final JsonMapper rfc8628Serializer;
 
     @Operation(summary = "Регистрация пользователя")
     @PostMapping("/sign-up")
-    public ResponseEntity<JwtAuthenticationResponseInfo> signUp(@RequestBody @Valid SignUpRequestInfo requestInfo) {
+    public ResponseEntity<AuthorizationTokenInfo> signUp(@RequestBody @Valid SignUpRequestInfo requestInfo) {
         try {
             final var responseInfo = authenticationService.signUp(requestInfo);
             final var responseCookie = authenticationService.createRefreshTokenCookie(responseInfo.refreshToken(), REFRESH_URL);
             return ResponseEntity.ok()
                     .header(HttpHeaders.SET_COOKIE, responseCookie.toString())
-                    .body(responseInfo.response());
+                    .body(responseInfo.safe());
         } catch (InvalidInviteCodeException e) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, e.getMessage());
         }
@@ -55,30 +67,85 @@ public class AuthenticationController {
 
     @Operation(summary = "Авторизация пользователя")
     @PostMapping("/sign-in")
-    public ResponseEntity<JwtAuthenticationResponseInfo> signIn(@RequestBody @Valid SignInRequestInfo requestInfo) {
+    public ResponseEntity<AuthorizationTokenInfo> signIn(@RequestBody @Valid SignInRequestInfo requestInfo) {
         final var responseInfo = authenticationService.signIn(requestInfo);
         final var responseCookie = authenticationService.createRefreshTokenCookie(responseInfo.refreshToken(), REFRESH_URL);
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, responseCookie.toString())
-                .body(responseInfo.response());
+                .body(responseInfo.safe());
     }
 
     @Operation(summary = "Выйти из профиля")
     @PostMapping("/sign-out")
-    public JwtAuthenticationResponseInfo signOut() {
+    public AuthorizationTokenInfo signOut() {
         throw new NotImplementedException();
     }
 
     @PostMapping("/refresh")
-    public ResponseEntity<JwtAuthenticationResponseInfo> refresh(
+    public ResponseEntity<AuthorizationTokenInfo> refresh(
             @CookieValue(name = "refreshToken") String refreshToken
     ) {
-        final var jwtAuthenticationResponseInfo = authenticationService.refresh(refreshToken);
-        final var responseCookie = authenticationService.createRefreshTokenCookie(jwtAuthenticationResponseInfo.refreshToken(), REFRESH_URL);
+        final var AuthorizationTokenInfo = authenticationService.refresh(refreshToken);
+        final var responseCookie = authenticationService.createRefreshTokenCookie(AuthorizationTokenInfo.refreshToken(), REFRESH_URL);
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, responseCookie.toString())
-                .body(jwtAuthenticationResponseInfo.response());
+                .body(AuthorizationTokenInfo.safe());
+    }
+
+    @PostMapping(
+            value = "/device/request",
+            consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<DeviceResponseInfo> deviceRequest(
+            @RequestParam("client_id") String clientId,
+            @RequestParam("scope") Integer scope
+    ) {
+        final var role = Authority.of(scope);
+        throw new NotImplementedException();
+    }
+
+    @PostMapping(
+            value = "/device/token",
+            consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<?> deviceToken(
+            @RequestParam("grant_type") String grantType,
+            @RequestParam("client_id") String clientId,
+            @RequestParam("device_code") String deviceCode
+    ) {
+        // Проверяем grant_type согласно спецификации RFC 8628 (Раздел 3.4)
+        if (!"urn:ietf:params:oauth:grant-type:device_code".equals(grantType)) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "unsupported_grant_type"));
+        }
+        throw new NotImplementedException();
+    }
+
+    @PostMapping("/device/confirm")
+    public ResponseEntity<Boolean> deviceConfirm(
+            @AuthenticationPrincipal Profile profile,
+            @RequestBody DeviceConfirmRequestInfo deviceConfirmRequestInfo
+    ) {
+        throw new NotImplementedException();
+    }
+
+    @ExceptionHandler({DeviceAuthorizationException.class})
+    public ResponseEntity<?> handleDeviceAuthorizationException(DeviceAuthorizationException e) {
+        return switch (e.getMessage()) {
+            case "authorization_pending" -> ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "authorization_pending"));
+            case "slow_down" -> ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "slow_down"));
+            case "access_denied" -> ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "access_denied"));
+            case "expired_token" -> ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "expired_token"));
+            default -> ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "invalid_grant"));
+        };
     }
 
     @ExceptionHandler({SignatureException.class, DecodingException.class, MalformedJwtException.class, ExpiredJwtException.class, BadCredentialsException.class})

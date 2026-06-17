@@ -1,8 +1,8 @@
 package com.pixplaze.api.web.service;
 
 
+import com.pixplaze.api.web.data.user.Profile;
 import com.pixplaze.api.web.data.user.Role;
-import com.pixplaze.api.web.data.user.User;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
@@ -37,10 +37,10 @@ public class JwtService0 {
         public static final String ROLE = "role";
     }
 
-    public String generateRefreshToken(User user) {
+    public String generateRefreshToken(Profile profile) {
         return Jwts.builder()
                 .id(UUID.randomUUID().toString())
-                .subject(user.getUsername())
+                .subject(profile.getUsername())
                 .issuedAt(Date.from(Instant.now()))
                 .expiration(Date.from(Instant.now().plus(Duration.ofDays(refreshExpiresInDays)))) // TODO: заменить на другое значение
                 .signWith(getRefreshSigningKey())
@@ -50,42 +50,42 @@ public class JwtService0 {
     /**
      * Генерация токена
      *
-     * @param user данные пользователя
+     * @param profile данные пользователя
      * @return токен
      */
-    public String generateAccessToken(User user) {
+    public String generateAccessToken(Profile profile) {
         Map<String, Object> claims = new HashMap<>();
-        claims.put(ExtraClaims.ID, user.getId());
-        claims.put(ExtraClaims.EMAIL, user.getEmail());
-        claims.put(ExtraClaims.ROLE, user.getRole());
+        claims.put(ExtraClaims.ID, profile.getId());
+        claims.put(ExtraClaims.EMAIL, profile.getEmail());
+        claims.put(ExtraClaims.ROLE, profile.getRole());
         claims.put("pinus", "pinus");
-        return generateAccessToken(claims, user);
+        return generateAccessToken(claims, profile);
     }
 
     /**
      * Генерация токена
      *
      * @param extraClaims дополнительные данные
-     * @param user данные пользователя
+     * @param profile данные пользователя
      * @return токен
      */
-    private String generateAccessToken(Map<String, Object> extraClaims, User user) {
+    private String generateAccessToken(Map<String, Object> extraClaims, Profile profile) {
         return Jwts.builder()
                 .claims(extraClaims)
-                .subject(user.getUsername())
+                .subject(profile.getUsername())
                 .issuedAt(Date.from(Instant.now()))
                 .expiration(Date.from(Instant.now().plus(Duration.ofMinutes(accessExpiresInMinutes))))
                 .signWith(getAccessSigningKey())
                 .compact();
     }
 
-    public User getUserDetails(String token) {
+    public Profile getUserDetails(String token) {
         final var claims = extractAllClaims(token);
         return getUserByClaims(claims);
     }
 
-    private User getUserByClaims(Claims claims) {
-        return new User(
+    private Profile getUserByClaims(Claims claims) {
+        return new Profile(
                 null,
                 claims.getSubject(),
                 claims.get(ExtraClaims.EMAIL, String.class),

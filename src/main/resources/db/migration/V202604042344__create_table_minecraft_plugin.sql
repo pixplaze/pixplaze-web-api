@@ -1,0 +1,5 @@
+CREATE TABLE minecraft_plugin (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name VARCHAR(64) NOT NULL,
+    core_id BIGINT NOT NULL
+)

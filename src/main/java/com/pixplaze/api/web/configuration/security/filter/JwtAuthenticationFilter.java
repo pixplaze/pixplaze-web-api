@@ -1,6 +1,6 @@
 package com.pixplaze.api.web.configuration.security.filter;
 
-import com.pixplaze.api.web.data.user.User;
+import com.pixplaze.api.web.data.user.Profile;
 import com.pixplaze.api.web.service.auth.AccessTokenService;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.MalformedJwtException;
@@ -64,8 +64,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
     }
 
-    private User loadUserDetails(String token) {
-        return accessTokenService.extractUser(token);
+    private Profile loadUserDetails(String token) {
+        return accessTokenService.readClaims(token);
     }
 
     private static @Nonnull UsernamePasswordAuthenticationToken loadAuthentication(@Nonnull HttpServletRequest request, UserDetails userDetails) {

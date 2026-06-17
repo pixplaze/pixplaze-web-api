@@ -160,10 +160,6 @@
 								<url>${env.PIXPLAZE_DB_URL}</url>
 								<user>${env.PIXPLAZE_DB_USERNAME}</user>
 								<password>${env.PIXPLAZE_DB_PASSWORD}</password>
-<!--								<driver>org.postgresql.Driver</driver>-->
-<!--								<url>jdbc:postgresql://localhost:5432/pixplaze</url>-->
-<!--								<user>PIXPLAZE_DB_ADMIN</user>-->
-<!--								<password>ab39-bv28</password>-->
 							</jdbc>
 							<generator>
 								<database>
@@ -174,12 +170,27 @@
 								<generate>
 									<pojos>false</pojos>     <!-- Отключаем старые POJO-классы -->
 									<records>false</records> <!-- Отключаем jOOQ-зависимые UpdatableRecordImpl -->
+									<daos>false</daos>
+									<interfaces>false</interfaces>
+									<fluentSetters>false</fluentSetters>
 									<pojosAsJavaRecordClasses>true</pojosAsJavaRecordClasses> <!-- Включаем Java 16+ Records -->
 								</generate>
 								<target>
-									<packageName>com.pixplaze.web.api.data.db</packageName>
+									<packageName>com.pixplaze.api.web.data.db</packageName>
 									<directory>target/generated-sources/jooq</directory>
 								</target>
+								<strategy>
+									<matchers>
+										<tables>
+											<table>
+												<tableClass>
+													<expression>$0_Table</expression>
+													<transform>PASCAL</transform>
+												</tableClass>
+											</table>
+										</tables>
+									</matchers>
+								</strategy>
 							</generator>
 						</configuration>
 					</execution>

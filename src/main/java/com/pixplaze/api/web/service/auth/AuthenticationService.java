@@ -1,13 +1,13 @@
-package com.pixplaze.api.web.service;
+package com.pixplaze.api.web.service.auth;
 
+import com.pixplaze.api.ext.data.auth.AuthorizationTokenInfo;
 import com.pixplaze.api.web.data.VoucherCode;
-import com.pixplaze.api.web.data.dto.JwtAuthenticationResponseInfo;
 import com.pixplaze.api.web.data.dto.SignInRequestInfo;
 import com.pixplaze.api.web.data.dto.SignUpRequestInfo;
 import com.pixplaze.api.web.data.user.Role;
-import com.pixplaze.api.web.data.user.User;
-import com.pixplaze.api.web.service.auth.AccessTokenService;
-import com.pixplaze.api.web.service.auth.RefreshTokenService;
+import com.pixplaze.api.web.data.user.Profile;
+import com.pixplaze.api.web.service.UserService;
+import com.pixplaze.api.web.service.VoucherCodeService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
@@ -35,11 +35,11 @@ public class AuthenticationService {
      * @return токен
      */
     @Transactional
-    public JwtAuthenticationResponseInfo signUp(SignUpRequestInfo request) {
+    public AuthorizationTokenInfo signUp(SignUpRequestInfo request) {
 
         VoucherCode voucherCode = voucherCodeService.load(request.inviteCode(), VoucherCode.Type.INVITE);
 
-        var user = User.builder()
+        var user = Profile.builder()
                 .name(request.username())
                 .email(request.email())
                 .password(passwordEncoder.encode(request.password()))
@@ -56,29 +56,27 @@ public class AuthenticationService {
 
         var accessToken = accessTokenService.generate(user);
         var refreshToken = refreshTokenService.generate(user);
-        return new JwtAuthenticationResponseInfo(accessToken, refreshToken);
+        return new AuthorizationTokenInfo(accessToken, refreshToken);
     }
 
-    /**
-     * Аутентификация пользователя
-     *
-     * @param request данные пользователя
-     * @return токен
-     */
-    public JwtAuthenticationResponseInfo signIn(SignInRequestInfo request) {
+    /// Аутентификация пользователя
+    ///
+    /// @param request данные пользователя
+    /// @return токен
+    public AuthorizationTokenInfo signIn(SignInRequestInfo request) {
         authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(request.username(), request.password()));
 
         var user = userService.getUserByUsername(request.username());
         var accessToken = accessTokenService.generate(user);
         var refreshToken = refreshTokenService.generate(user);
-        return new JwtAuthenticationResponseInfo(accessToken, refreshToken);
+        return new AuthorizationTokenInfo(accessToken, refreshToken);
     }
 
-    public JwtAuthenticationResponseInfo refresh(String token) {
-        final var user = refreshTokenService.extractUser(token);
+    public AuthorizationTokenInfo refresh(String token) {
+        final var user = refreshTokenService.readClaims(token);
         final var accessToken = accessTokenService.generate(user);
         final var refreshToken = refreshTokenService.generate(user);
-        return new JwtAuthenticationResponseInfo(accessToken, refreshToken);
+        return new AuthorizationTokenInfo(accessToken, refreshToken);
     }
 
     public ResponseCookie createRefreshTokenCookie(String refreshToken, String path) {
@@ -88,9 +86,5 @@ public class AuthenticationService {
                 .path(path)     // Кука будет отправляться только на эндпоинт обновления
                 .maxAge(refreshTokenService.getExpirationTerm())
                 .build();
-    }
-
-    public boolean isInviteCodeValid(String inviteCode) {
-        return inviteCode != null && !inviteCode.isBlank() && inviteCode.equals("PIPIDASTR");
     }
 }

@@ -19,7 +19,7 @@ public class JsonConfiguration {
     @Bean
     @Primary
     @Profile("dev")
-    public JsonMapper devObjectMapper() {
+    public JsonMapper devSerializer() {
         return JsonMapper.builder()
                 .addModule(MINECRAFT_NATIVE_JSON_MODULE)
                 .findAndAddModules()
@@ -31,7 +31,7 @@ public class JsonConfiguration {
     @Bean
     @Primary
     @Profile("prod")
-    public JsonMapper prodObjectMapper() {
+    public JsonMapper prodSerializer() {
         return JsonMapper.builder()
                 .addModule(MINECRAFT_NATIVE_JSON_MODULE)
                 .findAndAddModules()

@@ -1,6 +1,6 @@
 package com.pixplaze.api.web.service.auth;
 
-import com.pixplaze.api.web.data.user.User;
+import com.pixplaze.api.web.data.user.Profile;
 import lombok.Getter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -9,7 +9,7 @@ import java.time.Duration;
 import java.util.UUID;
 
 @Service
-public class RefreshTokenService extends UserJwtService<User> {
+public class RefreshTokenService extends UserJwtService<Profile> {
     @Getter
     private final Duration expirationTerm;
 

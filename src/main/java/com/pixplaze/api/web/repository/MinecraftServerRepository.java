@@ -2,11 +2,9 @@ package com.pixplaze.api.web.repository;
 
 import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerPortsInfo;
-import com.pixplaze.web.api.data.db.tables.MinecraftServers;
+import com.pixplaze.api.web.data.db.tables.MinecraftServerTable;
 import lombok.AllArgsConstructor;
 import org.jooq.DSLContext;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.jdbc.core.DataClassRowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -55,9 +53,9 @@ public class MinecraftServerRepository {
     }
 
     public List<MinecraftServerInfo> getMinecraftServerList() {
-        final var MINECRAFT_SERVERS = MinecraftServers.MINECRAFT_SERVERS;
+        final var MINECRAFT_SERVER = MinecraftServerTable.MINECRAFT_SERVER;
         return dslContext.select()
-                .from(MINECRAFT_SERVERS)
+                .from(MINECRAFT_SERVER)
                 .fetchInto(MinecraftServerInfo.class);
 //        return jdbcClient.sql("SELECT * FROM minecraft_server")
 //                .query(new DataClassRowMapper<>(MinecraftServerInfo.class))

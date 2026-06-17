@@ -1,0 +1,8 @@
+CREATE TABLE minecraft_server (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    host VARCHAR(128) NOT NULL UNIQUE,
+    motd VARCHAR(256) NOT NULL,
+    licence BOOLEAN NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL
+)

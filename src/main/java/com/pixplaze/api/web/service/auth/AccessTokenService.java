@@ -1,6 +1,6 @@
 package com.pixplaze.api.web.service.auth;
 
-import com.pixplaze.api.web.data.user.User;
+import com.pixplaze.api.web.data.user.Profile;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -9,7 +9,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 @Service
-public class AccessTokenService extends UserJwtService<User> {
+public class AccessTokenService extends UserJwtService<Profile> {
 
     public AccessTokenService(
             @Value("${app.token.access.signing.key}") String secret,
@@ -19,11 +19,11 @@ public class AccessTokenService extends UserJwtService<User> {
     }
 
     @Override
-    public Map<String, Object> buildClaims(User user) {
+    public Map<String, Object> buildClaims(Profile profile) {
         return new HashMap<>() {{
-            put(UserClaims.ID, user.getId());
-            put(UserClaims.EMAIL, user.getEmail());
-            put(UserClaims.ROLE, user.getRole());
+            put(UserClaims.ID, profile.getId());
+            put(UserClaims.EMAIL, profile.getEmail());
+            put(UserClaims.ROLE, profile.getRole());
         }};
     }
 }

@@ -1,0 +1,6 @@
+CREATE TABLE profile_signup (
+    profile_id BIGINT REFERENCES profile(id) ON DELETE CASCADE,
+    signup_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    signup_ip VARCHAR(256) NOT NULL,
+    PRIMARY KEY (profile_id)
+)

@@ -1,9 +1,8 @@
 package com.pixplaze.api.web.repository;
 
+import com.pixplaze.api.web.data.user.Profile;
 import com.pixplaze.api.web.data.user.Role;
-import com.pixplaze.api.web.data.user.User;
 import com.pixplaze.api.web.exception.http.NotImplementedException;
-import com.pixplaze.web.api.data.db.tables.Users;
 import lombok.AllArgsConstructor;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
@@ -11,40 +10,39 @@ import org.springframework.stereotype.Repository;
 import java.util.List;
 import java.util.Optional;
 
+import static com.pixplaze.api.web.data.db.tables.ProfileTable.PROFILE;
+
 @Repository
 @AllArgsConstructor
 public class UserRepository {
     private DSLContext dslContext;
 
-    public User create(User user) {
-        final var USERS = Users.USERS;
-        final var id = dslContext.insertInto(USERS)
-                .set(USERS.NAME, user.getName())
-                .set(USERS.EMAIL, user.getEmail())
-                .set(USERS.PASSWORD, user.getPassword())
-                .returning(USERS.ID)
-                .fetchOne(USERS.ID);
-        user.setId(id);
-        user.setRole(Role.ROLE_USER);
-        return user;
+    public Profile create(Profile profile) {
+        final var id = dslContext.insertInto(PROFILE)
+                .set(PROFILE.NAME, profile.getName())
+                .set(PROFILE.EMAIL, profile.getEmail())
+                .set(PROFILE.PASSWORD, profile.getPassword())
+                .returning(PROFILE.ID)
+                .fetchOne(PROFILE.ID);
+        profile.setId(id);
+        profile.setRole(Role.ROLE_USER);
+        return profile;
     }
 
-    public List<User> getUsers(Integer limit, Integer offset) {
-        final var USERS = Users.USERS;
+    public List<Profile> getUsers(Integer limit, Integer offset) {
         return dslContext.select()
-                .from(USERS)
+                .from(PROFILE)
                 .limit(limit)
                 .offset(offset)
-                .fetchInto(User.class);
+                .fetchInto(Profile.class);
     }
 
-    public User update(User user) {
-        final var USERS = Users.USERS;
-        final var updatedUser = dslContext.update(USERS)
-                .set(USERS.EMAIL, user.getEmail())
-                .where(USERS.ID.eq(user.getId()))
-                .returning(USERS)
-                .fetchOneInto(User.class);
+    public Profile update(Profile profile) {
+        final var updatedUser = dslContext.update(PROFILE)
+                .set(PROFILE.EMAIL, profile.getEmail())
+                .where(PROFILE.ID.eq(profile.getId()))
+                .returning(PROFILE)
+                .fetchOneInto(Profile.class);
 
         updatedUser.setRole(Role.ROLE_USER);
 
@@ -52,18 +50,16 @@ public class UserRepository {
     }
 
     public void delete(long id) {
-        final var USERS = Users.USERS;
-        dslContext.delete(USERS)
-                .where(USERS.ID.eq(id))
+        dslContext.delete(PROFILE)
+                .where(PROFILE.ID.eq(id))
                 .execute();
     }
 
     public boolean existsByUsername(String username) {
-        final var USERS = Users.USERS;
         return dslContext.fetchExists(
                 dslContext.selectOne()
-                        .from(USERS)
-                        .where(USERS.NAME.eq(username))
+                        .from(PROFILE)
+                        .where(PROFILE.NAME.eq(username))
         );
     }
 
@@ -71,19 +67,17 @@ public class UserRepository {
         throw new NotImplementedException();
     }
 
-    public Optional<User> findByUsername(String username) {
-        final var USERS = Users.USERS;
+    public Optional<Profile> findByUsername(String username) {
         return Optional.ofNullable(
-                dslContext.select().from(USERS)
-                        .where(USERS.NAME.eq(username))
-                        .fetchOneInto(User.class)
+                dslContext.select().from(PROFILE)
+                        .where(PROFILE.NAME.eq(username))
+                        .fetchOneInto(Profile.class)
         );
     }
 
-    public List<User> getAllByUsernameStartingWith(String username) {
-        final var USERS = Users.USERS;
-        return dslContext.select().from(USERS)
-                .where(USERS.NAME.like(username + "%"))
-                .fetchInto(User.class);
+    public List<Profile> getAllByUsernameStartingWith(String username) {
+        return dslContext.select().from(PROFILE)
+                .where(PROFILE.NAME.like(username + "%"))
+                .fetchInto(Profile.class);
     }
 }

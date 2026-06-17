@@ -38,7 +38,7 @@ public class VoucherCodeController {
         }
     }
 
-    @PostMapping("/validate/invite/{voucherCode}")
+    @PostMapping("/invite/validate/{voucherCode}")
     public boolean isInviteVoucherCodeValid(@PathVariable String voucherCode) {
         try {
             voucherCodeService.load(voucherCode, VoucherCode.Type.INVITE);
@@ -46,6 +46,11 @@ public class VoucherCodeController {
         } catch (VoucherCodeValidationException e) {
             return false;
         }
+    }
+
+    @GetMapping("/invite/message/{voucherCode}")
+    public String getInviteCodeMessage(@PathVariable String voucherCode) {
+        return voucherCodeService.load(voucherCode, VoucherCode.Type.INVITE).message();
     }
 
     @ExceptionHandler(RuntimeException.class)

@@ -1,7 +1,7 @@
 package com.pixplaze.api.web.service;
 
+import com.pixplaze.api.web.data.user.Profile;
 import com.pixplaze.api.web.data.user.Role;
-import com.pixplaze.api.web.data.user.User;
 import com.pixplaze.api.web.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -21,15 +21,15 @@ public class UserService {
      * Создание пользователя
      * @return созданный пользователь
      */
-    public User create(User user) {
-        return userRepository.create(user);
+    public Profile create(Profile profile) {
+        return userRepository.create(profile);
     }
 
-    public List<User> getUsers(Integer limit, Integer offset) {
+    public List<Profile> getUsers(Integer limit, Integer offset) {
         return userRepository.getUsers(limit, offset);
     }
 
-    public List<User> getUsers(String username) {
+    public List<Profile> getUsers(String username) {
         return userRepository.getAllByUsernameStartingWith(username);
     }
 
@@ -38,7 +38,7 @@ public class UserService {
      *
      * @return пользователь
      */
-    public User getUserByUsername(String username) {
+    public Profile getUserByUsername(String username) {
         return userRepository.findByUsername(username)
                 .orElseThrow(() -> new UsernameNotFoundException("Пользователь не найден"));
     }
@@ -59,9 +59,9 @@ public class UserService {
      *
      * @return текущий пользователь
      */
-    public User getCurrentUser() {
+    public Profile getCurrentUser() {
         // Получение имени пользователя из контекста Spring Security
-        return (User) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        return (Profile) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
     }
 
 

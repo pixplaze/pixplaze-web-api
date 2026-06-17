@@ -14,7 +14,7 @@ import java.util.List;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-public class User implements UserDetails {
+public class Profile implements UserDetails {
     private Long id;
     private String name;
     private String email;

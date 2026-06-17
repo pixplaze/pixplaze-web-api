@@ -5,6 +5,7 @@ import java.time.OffsetDateTime;
 public record VoucherCode(
     Long id,
     String code,
+    String message,
     String description,
     Type type,
     OffsetDateTime created,

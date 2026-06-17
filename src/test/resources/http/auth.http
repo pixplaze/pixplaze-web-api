@@ -1,0 +1,44 @@
+### Sign-Up
+POST http://localhost:8080/auth/sign-up
+Content-Type: application/json
+
+{
+  "username": "pipidastr",
+  "email": "pipidastr@email.com",
+  "password": "pipidastr",
+  "inviteCode": "PIPIDASTR"
+}
+
+### Sign-In
+POST http://localhost:8080/auth/sign-in
+Content-Type: application/json
+
+{
+  "username": "penis",
+  "password": "eP4b-kcdw"
+}
+
+### Device Identify
+POST localhost:8080/auth/device/identify?client_id=penis&scope=3
+
+### Device Confirm
+POST localhost:8080/auth/device/confirm
+Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJwZW5pcyIsInBpZCI6OCwicmlkIjoiUk9MRV9VU0VSIiwiZW1haWwiOiJwZW5pc0BnbWFpbC5jb20iLCJpYXQiOjE3ODEzNjYxNDUsImV4cCI6MTc4MTUxMDE0NX0.tuK07oXyetN7j1n-Gi9FfJUMvAAEdQMJOWDvef0PY94
+Content-Type: application/json
+
+{
+    "userCode": "USERCODE",
+    "decision": "approve"
+}
+
+### Refresh
+POST http://localhost:8080/auth/refresh
+
+### Get ProfileTable
+GET http://localhost:8080/users
+Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJwaXBpZGfzdHIiLCJyb2xlIjoiUk9MRV9VU0VSIiwiaWQiOjEyLCJlbWFpbCI6InBpcGlkYXN0ckBlbWFpbC5jb20iLCJpYXQiOjE3NzkxNDg5ODgsImV4cCI6MTc3OTI5Mjk4OH0.e-6q6XLFX7ulE27SVtnID8EGS35kF8xWluK4mNO89RU
+
+
+### Admin
+GET http://localhost:8080/users/admin
+Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoiUk9MRV9VU0VSIiwicGludXMiOiJwaW51cyIsImlkIjoxMiwiZW1haWwiOiJwaXBpZGFzdHJAZW1haWwuY29tIiwic3ViIjoicGlwaWRhc3RyIiwiaWF0IjoxNzc5MTM5NzcxLCJleHAiOjE3NzkyODM3NzF9.pGoA972_52pYPk5CuI_Q09Xbw9oRAWZJi2JT235eTdc

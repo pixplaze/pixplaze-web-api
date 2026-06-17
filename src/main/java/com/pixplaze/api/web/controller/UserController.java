@@ -1,6 +1,6 @@
 package com.pixplaze.api.web.controller;
 
-import com.pixplaze.api.web.data.user.User;
+import com.pixplaze.api.web.data.user.Profile;
 import com.pixplaze.api.web.service.UserService;
 import lombok.AllArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -20,7 +20,7 @@ public class UserController {
     private final UserService userService;
 
     @GetMapping
-    public List<User> getUsers(
+    public List<Profile> getUsers(
             @RequestParam(required = false) Integer limit,
             @RequestParam(required = false) Integer offset
     ) {

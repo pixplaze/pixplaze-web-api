@@ -1,7 +1,7 @@
 package com.pixplaze.api.web.service.auth;
 
 import com.pixplaze.api.web.data.user.Role;
-import com.pixplaze.api.web.data.user.User;
+import com.pixplaze.api.web.data.user.Profile;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.io.Decoders;
@@ -13,12 +13,12 @@ import java.time.Instant;
 import java.util.Date;
 import java.util.Map;
 
-public class UserJwtService<E extends User> implements JwtService<E> {
+public class UserJwtService<E extends Profile> implements JwtService<E> {
 
     public static class UserClaims {
-        public static final String ID = "id";
+        public static final String ID = "pid";
         public static final String EMAIL = "email";
-        public static final String ROLE = "role";
+        public static final String ROLE = "rid";
     }
 
     private final SecretKey secretKey;
@@ -38,12 +38,12 @@ public class UserJwtService<E extends User> implements JwtService<E> {
                 .getPayload();
     }
 
-    public User extractUser(String token) {
-        return extractUser(extractClaims(token));
+    public Profile readClaims(String token) {
+        return readClaims(extractClaims(token));
     }
 
-    public User extractUser(Claims claims) {
-        return new User(
+    public Profile readClaims(Claims claims) {
+        return new Profile(
                 claims.get(UserClaims.ID, Long.class),
                 claims.getSubject(),
                 claims.get(UserClaims.EMAIL, String.class),
@@ -64,7 +64,7 @@ public class UserJwtService<E extends User> implements JwtService<E> {
                 .compact();
     }
 
-    public Map<String, Object> buildClaims(User user) {
+    public Map<String, Object> buildClaims(Profile profile) {
         return Map.of();
     }
 

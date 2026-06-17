@@ -1,0 +1,69 @@
+Configuration:
+  status: warn
+
+  Properties:
+    Property:
+      - name: LOG_DIR
+        value: logs
+      - name: LOG_PATTERN
+        value: "%d{yyyy-MM-dd HH:mm:ss} [%t] %-5level %class:%L - %msg%n"
+
+  Appenders:
+
+    Console:
+      name: ConsoleAppender
+      target: SYSTEM_OUT
+      PatternLayout:
+        pattern: ${LOG_PATTERN}
+
+    RollingFile:
+      - name: CommonFileAppender
+        fileName: ${LOG_DIR}/common.log
+        filePattern: "${LOG_DIR}/archive/common-%d{yyyy-MM-dd}.log.gz"
+        PatternLayout:
+          pattern: ${LOG_PATTERN}
+
+        Policies:
+          TimeBasedTriggeringPolicy:
+            interval: 1
+            modulate: true
+
+        DefaultRolloverStrategy:
+          Delete:
+            basePath: ${LOG_DIR}/archive
+            maxDepth: 1
+            IfLastModified:
+              age: 10d
+
+      - name: ErrorFileAppender
+        fileName: ${LOG_DIR}/error.log
+        filePattern: "${LOG_DIR}/archive/error-%d{yyyy-MM-dd}.log.gz"
+
+        PatternLayout:
+          pattern: ${LOG_PATTERN}
+
+        Filters:
+          ThresholdFilter:
+            level: error
+            onMatch: ACCEPT
+            onMismatch: DENY
+
+        Policies:
+          TimeBasedTriggeringPolicy:
+            interval: 1
+
+        DefaultRolloverStrategy:
+          Delete:
+            basePath: ${LOG_DIR}/archive
+            maxDepth: 1
+            IfLastModified:
+              age: 10d
+
+  Loggers:
+
+    Root:
+      level: info
+      AppenderRef:
+        - ref: ConsoleAppender
+        - ref: CommonFileAppender
+        - ref: ErrorFileAppender
