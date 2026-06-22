@@ -44,11 +44,11 @@ public class DeviceAuthorizationSessionService {
             Authority authority,
             String authorizationDetails
     ) {
-        final var userCode = generateUserCode();
         final var strategy = (DeviceAuthorizationStrategy<D, ?>) deviceAuthorizationStrategyFactory.of(authority);
         final var parsedAuthorizationDetails = Optional.ofNullable(authorizationDetails)
-                .map(strategy::parseAuthorizationDetails)
+                .map(strategy::parse)
                 .orElse(null);
+        final var userCode = generateUserCode();
         final var session = new DeviceAuthorizationSession<>(clientId, userCode, deviceCodeHash, strategy, authority, parsedAuthorizationDetails, expiration);
 
         deviceCodeHashStore.put(deviceCodeHash, session);

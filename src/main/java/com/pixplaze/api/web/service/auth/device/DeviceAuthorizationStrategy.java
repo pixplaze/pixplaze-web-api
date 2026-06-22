@@ -5,6 +5,6 @@ import org.springframework.stereotype.Component;
 
 @Component
 public interface DeviceAuthorizationStrategy<D, T> {
-    D parseAuthorizationDetails(String authorizationDetails);
+    D parse(String authorizationDetails);
     DeviceAuthorizationResponse<T> grant(DeviceAuthorizationSession<D> deviceAuthorizationSession);
 }

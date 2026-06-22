@@ -11,12 +11,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.util.Map;
-
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class MinecraftDeviceAuthorizationService implements DeviceAuthorizationService {
+public class DefaultDeviceAuthorizationService implements DeviceAuthorizationService {
     private final DeviceAuthorizationSessionService sessionService;
 
     @Value("${app.web.gateway.url}")
@@ -77,8 +75,8 @@ public class MinecraftDeviceAuthorizationService implements DeviceAuthorizationS
                 final var response = session.getStrategy().grant(session); // TODO!
                 sessionService.removeSession(session);
                 return response;
-            } catch (Exception ignored) { // TODO: Implement error log
-                log.error(ignored.getMessage(), ignored);
+            } catch (Exception e) {
+                log.error(e.getMessage(), e);
                 return DeviceAuthorizationResponse.error("server_error");
             }
         }
@@ -112,17 +110,5 @@ public class MinecraftDeviceAuthorizationService implements DeviceAuthorizationS
 
     private String buildVerificationUrl(String userCode) {
         return buildVerificationUrl() + "?userCode=" + userCode;
-    }
-
-    @Deprecated(forRemoval = true)
-    public Map<String, Object> toRfc8628Map(DeviceResponseInfo deviceResponseInfo) {
-        return Map.of(
-                "device_code", deviceResponseInfo.deviceCode(),
-                "user_code", deviceResponseInfo.userCode(),
-                "expires_in", deviceResponseInfo.expiresIn(),
-                "interval", deviceResponseInfo.interval(),
-                "verification_uri", deviceResponseInfo.verificationUri(),
-                "verification_uri_complete", deviceResponseInfo.verificationUriComplete()
-        );
     }
 }

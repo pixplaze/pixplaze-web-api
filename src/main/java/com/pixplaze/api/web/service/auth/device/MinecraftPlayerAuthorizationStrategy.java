@@ -18,18 +18,13 @@ public class MinecraftPlayerAuthorizationStrategy implements DeviceAuthorization
     private final JsonMapper jsonMapper;
 
     @Override
-    public MinecraftPlayerInfo parseAuthorizationDetails(String authorizationDetails) {
+    public MinecraftPlayerInfo parse(String authorizationDetails) {
         return jsonMapper.readValue(authorizationDetails, MinecraftPlayerInfo.class);
     }
 
     @Override
     public DeviceAuthorizationResponse<AuthorizationTokenInfo> grant(DeviceAuthorizationSession<MinecraftPlayerInfo> session) {
         final var sessionState = session.getState();
-//        final var authorizedAuthority = Authority.as(sessionState.authority())
-//                .grant(
-//                        "minecraft.server.chat.read",
-//                        "minecraft.server.chat.write"
-//                );
         final var profile = sessionState.profile().orElseThrow();
         final var minecraftPlayerInfo = sessionState.details().orElseThrow();
 

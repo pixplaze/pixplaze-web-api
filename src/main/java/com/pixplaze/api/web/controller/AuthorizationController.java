@@ -10,6 +10,7 @@ import com.pixplaze.api.web.exception.auth.DeviceAuthorizationException;
 import com.pixplaze.api.web.exception.http.NotImplementedException;
 import com.pixplaze.api.web.exception.voucher.InvalidInviteCodeException;
 import com.pixplaze.api.web.exception.voucher.VoucherCodeValidationException;
+import com.pixplaze.api.web.mapper.DeviceResponseMapper;
 import com.pixplaze.api.web.service.ExceptionHandlerService;
 import com.pixplaze.api.web.service.auth.AuthorizationService;
 import com.pixplaze.api.web.service.auth.device.DeviceAuthorizationService;
@@ -47,6 +48,7 @@ public class AuthorizationController {
     private final ExceptionHandlerService exceptionHandlerService;
     private final AuthorizationService authorizationService;
     private final DeviceAuthorizationService deviceAuthorizationService;
+    private final DeviceResponseMapper deviceResponseMapper;
 
     @Operation(summary = "Регистрация пользователя")
     @PostMapping("/sign-up")
@@ -101,7 +103,8 @@ public class AuthorizationController {
             @RequestParam(value = "authorization_details", required = false) String authorizationDetails
     ) {
         try {
-            return ResponseEntity.ok(deviceAuthorizationService.authorize(clientId, scope, authorizationDetails));
+            final var deviceResponse = deviceAuthorizationService.authorize(clientId, scope, authorizationDetails);
+            return ResponseEntity.ok(deviceResponseMapper.toRfc8628Map(deviceResponse));
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(exceptionHandlerService.handleException(e, null));
         }

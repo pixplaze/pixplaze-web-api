@@ -32,6 +32,14 @@ public class DeviceAuthorizationStrategyFactory {
             return (DeviceAuthorizationStrategy<D, T>) strategies.get(MinecraftPlayerAuthorizationStrategy.class);
         }
 
+        if (authority.from(Authority.Source.MINECRAFT_AUTHORIZED_DEVICE) && authority.is(Authority.Role.ADMINISTRATOR)) {
+            return (DeviceAuthorizationStrategy<D, T>) strategies.get(MinecraftPlayerAuthorizationStrategy.class);
+        }
+
+        if (authority.from(Authority.Source.MINECRAFT_AUTHORIZED_DEVICE) && authority.is(Authority.Role.APPLICATION)) {
+            return (DeviceAuthorizationStrategy<D, T>) strategies.get(MinecraftPlayerAuthorizationStrategy.class);
+        }
+
         throw new IllegalStateException();
     }
 }
