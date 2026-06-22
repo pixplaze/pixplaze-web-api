@@ -1,7 +1,8 @@
 package com.pixplaze.api.web.service;
 
 import com.pixplaze.api.web.data.VoucherCode;
-import com.pixplaze.api.web.data.user.Profile;
+import com.pixplaze.api.web.data.db.tables.pojos.Profile;
+import com.pixplaze.api.web.data.user.ClientPrincipial;
 import com.pixplaze.api.web.exception.voucher.VoucherCodeValidationException;
 import com.pixplaze.api.web.repository.VoucherCodeRepository;
 import lombok.RequiredArgsConstructor;

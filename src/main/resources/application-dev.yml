@@ -1,0 +1,11 @@
+app:
+  web.gateway.url: http://localhost:8445
+  security:
+    auth:
+      device:
+        session:
+          expiration.seconds: 300
+          interval.seconds: 5
+      token:
+        access.expiration.minutes: 20160
+        refresh.expiration.days: 30

@@ -1,7 +1,7 @@
 package com.pixplaze.api.web.controller;
 
-import com.pixplaze.api.web.data.user.Profile;
-import com.pixplaze.api.web.service.UserService;
+import com.pixplaze.api.web.data.db.tables.pojos.Profile;
+import com.pixplaze.api.web.service.ProfileService;
 import lombok.AllArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -17,14 +17,14 @@ import java.util.List;
 @AllArgsConstructor
 public class UserController {
 
-    private final UserService userService;
+    private final ProfileService profileService;
 
     @GetMapping
     public List<Profile> getUsers(
             @RequestParam(required = false) Integer limit,
             @RequestParam(required = false) Integer offset
     ) {
-        return userService.getUsers(limit, offset);
+        return profileService.getProfiles(limit, offset);
     }
 
     @GetMapping("/admin")

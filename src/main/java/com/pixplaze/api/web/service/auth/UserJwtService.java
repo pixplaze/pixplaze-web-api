@@ -1,7 +1,7 @@
 package com.pixplaze.api.web.service.auth;
 
-import com.pixplaze.api.web.data.user.Role;
-import com.pixplaze.api.web.data.user.Profile;
+import com.pixplaze.api.ext.data.Authority;
+import com.pixplaze.api.web.data.user.ClientPrincipial;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.io.Decoders;
@@ -13,7 +13,7 @@ import java.time.Instant;
 import java.util.Date;
 import java.util.Map;
 
-public class UserJwtService<E extends Profile> implements JwtService<E> {
+public class UserJwtService<E extends ClientPrincipial> implements JwtService<E> {
 
     public static class UserClaims {
         public static final String ID = "pid";
@@ -38,33 +38,36 @@ public class UserJwtService<E extends Profile> implements JwtService<E> {
                 .getPayload();
     }
 
-    public Profile readClaims(String token) {
+    public ClientPrincipial readClaims(String token) {
         return readClaims(extractClaims(token));
     }
 
-    public Profile readClaims(Claims claims) {
-        return new Profile(
+    public ClientPrincipial readClaims(Claims claims) {
+        return new ClientPrincipial(
                 claims.get(UserClaims.ID, Long.class),
                 claims.getSubject(),
                 claims.get(UserClaims.EMAIL, String.class),
                 null,
-                Role.of(claims.get(UserClaims.ROLE, String.class))
+                Authority.as(Authority.Role.valueOf((String) claims.get(Authority.Claims.ROLE)))
+                        .from(Authority.Source.APPLICATION_AUTHORIZED_DEVICE)
+                        .to(Authority.Target.PIXPLAZE)
+                        .grant()
         );
     }
 
     @Override
-    public String generate(E user) {
+    public String generate(E principial) {
         return Jwts.builder()
                 .id(buildId())
-                .subject(user.getUsername())
-                .claims(buildClaims(user))
+                .subject(principial.getUsername())
+                .claims(buildClaims(principial))
                 .issuedAt(Date.from(Instant.now()))
                 .expiration(Date.from(Instant.now().plus(expirationTerm)))
                 .signWith(secretKey)
                 .compact();
     }
 
-    public Map<String, Object> buildClaims(Profile profile) {
+    public Map<String, Object> buildClaims(ClientPrincipial clientPrincipial) {
         return Map.of();
     }
 

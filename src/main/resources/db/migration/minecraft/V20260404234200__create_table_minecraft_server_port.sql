@@ -1,0 +1,7 @@
+CREATE TABLE minecraft_server_port (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    minecraft_server_id BIGINT REFERENCES minecraft_server(id) ON DELETE CASCADE,
+    java_port INT NOT NULL CHECK (java_port BETWEEN 0 AND 65536) DEFAULT 25565,
+    map_port INT NOT NULL CHECK (map_port BETWEEN 0 AND 65536) DEFAULT 25565,
+    api_port INT NOT NULL CHECK (api_port BETWEEN 0 AND 65536) DEFAULT 25565
+)

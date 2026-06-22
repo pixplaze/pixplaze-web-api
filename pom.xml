@@ -32,6 +32,7 @@
 		<flyway.version>12.1.0</flyway.version>
 		<spring-boot.version>4.0.3</spring-boot.version>
 		<jwt.version>0.12.6</jwt.version>
+		<mapstruct.version>1.6.3</mapstruct.version>
 	</properties>
 	<dependencies>
 		<dependency>
@@ -98,6 +99,12 @@
 			<optional>true</optional>
 		</dependency>
 		<dependency>
+			<groupId>org.mapstruct</groupId>
+			<artifactId>mapstruct</artifactId>
+			<version>${mapstruct.version}</version>
+		</dependency>
+
+		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-data-jpa-test</artifactId>
 			<scope>test</scope>
@@ -120,30 +127,6 @@
 	</dependencies>
 	<build>
 		<plugins>
-			<plugin>
-				<groupId>org.apache.maven.plugins</groupId>
-				<artifactId>maven-compiler-plugin</artifactId>
-				<configuration>
-					<annotationProcessorPaths>
-						<path>
-							<groupId>org.projectlombok</groupId>
-							<artifactId>lombok</artifactId>
-						</path>
-					</annotationProcessorPaths>
-				</configuration>
-			</plugin>
-			<plugin>
-				<groupId>org.springframework.boot</groupId>
-				<artifactId>spring-boot-maven-plugin</artifactId>
-				<configuration>
-					<excludes>
-						<exclude>
-							<groupId>org.projectlombok</groupId>
-							<artifactId>lombok</artifactId>
-						</exclude>
-					</excludes>
-				</configuration>
-			</plugin>
 			<plugin>
 				<groupId>org.jooq</groupId>
 				<artifactId>jooq-codegen-maven</artifactId>
@@ -168,12 +151,12 @@
 									<inputSchema>public</inputSchema>
 								</database>
 								<generate>
-									<pojos>false</pojos>     <!-- Отключаем старые POJO-классы -->
+									<pojos>true</pojos>     <!-- Включаем генерацию POJO-классов -->
 									<records>false</records> <!-- Отключаем jOOQ-зависимые UpdatableRecordImpl -->
 									<daos>false</daos>
 									<interfaces>false</interfaces>
-									<fluentSetters>false</fluentSetters>
-									<pojosAsJavaRecordClasses>true</pojosAsJavaRecordClasses> <!-- Включаем Java 16+ Records -->
+									<fluentSetters>true</fluentSetters>
+									<!--									<pojosAsJavaRecordClasses>true</pojosAsJavaRecordClasses> &lt;!&ndash; Включаем Java 16+ Records &ndash;&gt;-->
 								</generate>
 								<target>
 									<packageName>com.pixplaze.api.web.data.db</packageName>
@@ -197,6 +180,35 @@
 				</executions>
 			</plugin>
 			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<configuration>
+					<annotationProcessorPaths>
+						<path>
+							<groupId>org.projectlombok</groupId>
+							<artifactId>lombok</artifactId>
+						</path>
+						<path>
+							<groupId>org.mapstruct</groupId>
+							<artifactId>mapstruct-processor</artifactId>
+							<version>1.6.3</version>
+						</path>
+					</annotationProcessorPaths>
+				</configuration>
+			</plugin>
+			<plugin>
+				<groupId>org.springframework.boot</groupId>
+				<artifactId>spring-boot-maven-plugin</artifactId>
+				<configuration>
+					<excludes>
+						<exclude>
+							<groupId>org.projectlombok</groupId>
+							<artifactId>lombok</artifactId>
+						</exclude>
+					</excludes>
+				</configuration>
+			</plugin>
+			<plugin>
 				<groupId>org.flywaydb</groupId>
 				<artifactId>flyway-maven-plugin</artifactId>
 				<version>${flyway.version}</version> <!-- Используйте актуальную версию -->
@@ -211,6 +223,7 @@
 					<locations>
 						<location>filesystem:src/main/resources/db/migration</location>
 					</locations>
+					<outOfOrder>true</outOfOrder>
 				</configuration>
 			</plugin>
 		</plugins>

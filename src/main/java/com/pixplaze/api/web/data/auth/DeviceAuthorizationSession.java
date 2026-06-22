@@ -1,7 +1,7 @@
 package com.pixplaze.api.web.data.auth;
 
-import com.pixplaze.api.ext.data.auth.DeviceAuthenticationStateInfo;
-import com.pixplaze.api.web.data.user.Profile;
+import com.pixplaze.api.ext.data.Authority;
+import com.pixplaze.api.web.service.auth.device.DeviceAuthorizationStrategy;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -9,24 +9,19 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public class DeviceAuthSession {
-    // Геттеры и сеттеры
-    @Getter
-    private final String userCode;
-    @Getter
-    private final String clientId;
-    private final Instant expiresAt;
-    private final AtomicInteger attemptsCount;
+public class DeviceAuthorizationSession<D> {
     @Getter
     @Setter
-    private DeviceAuthenticationStateInfo<Profile> state;
+    private DeviceAuthorizationState<D> state;
+    private final @Getter DeviceAuthorizationStrategy<D, ?> strategy;
+    private final Instant expiresAt;
+    private final AtomicInteger attemptsCount;
 
-    public DeviceAuthSession(String userCode, String clientId, Duration expiration) {
-        this.userCode = userCode;
-        this.clientId = clientId;
+    public DeviceAuthorizationSession(String clientId, String userCode, String deviceHashCode, DeviceAuthorizationStrategy<D, ?> strategy, Authority authority, D authorizationDetails, Duration expiration) {
+        this.strategy = strategy;
+        this.state = DeviceAuthorizationState.pending(clientId, userCode, deviceHashCode, authority, authorizationDetails);
         this.expiresAt = createExpirationTime(expiration);
         this.attemptsCount = createAttemptsCount(expiration);
-        this.state = new DeviceAuthenticationStateInfo<>();
     }
 
     public boolean isExpired() {

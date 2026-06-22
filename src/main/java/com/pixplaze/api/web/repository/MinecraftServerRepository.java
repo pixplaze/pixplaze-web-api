@@ -5,7 +5,6 @@ import com.pixplaze.api.ext.data.server.MinecraftServerPortsInfo;
 import com.pixplaze.api.web.data.db.tables.MinecraftServerTable;
 import lombok.AllArgsConstructor;
 import org.jooq.DSLContext;
-import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -14,7 +13,6 @@ import java.util.List;
 @AllArgsConstructor
 public class MinecraftServerRepository {
 
-    private final JdbcClient jdbcClient;
     private final DSLContext dslContext;
 
     private static final List<MinecraftServerInfo> PIXPLAZE_SERVER_INFO_LIST = List.of(
@@ -57,8 +55,5 @@ public class MinecraftServerRepository {
         return dslContext.select()
                 .from(MINECRAFT_SERVER)
                 .fetchInto(MinecraftServerInfo.class);
-//        return jdbcClient.sql("SELECT * FROM minecraft_server")
-//                .query(new DataClassRowMapper<>(MinecraftServerInfo.class))
-//                .list();
     }
 }

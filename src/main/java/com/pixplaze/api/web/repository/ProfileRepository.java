@@ -1,7 +1,6 @@
 package com.pixplaze.api.web.repository;
 
-import com.pixplaze.api.web.data.user.Profile;
-import com.pixplaze.api.web.data.user.Role;
+import com.pixplaze.api.web.data.db.tables.pojos.Profile;
 import com.pixplaze.api.web.exception.http.NotImplementedException;
 import lombok.AllArgsConstructor;
 import org.jooq.DSLContext;
@@ -14,7 +13,7 @@ import static com.pixplaze.api.web.data.db.tables.ProfileTable.PROFILE;
 
 @Repository
 @AllArgsConstructor
-public class UserRepository {
+public class ProfileRepository {
     private DSLContext dslContext;
 
     public Profile create(Profile profile) {
@@ -25,7 +24,6 @@ public class UserRepository {
                 .returning(PROFILE.ID)
                 .fetchOne(PROFILE.ID);
         profile.setId(id);
-        profile.setRole(Role.ROLE_USER);
         return profile;
     }
 
@@ -38,15 +36,11 @@ public class UserRepository {
     }
 
     public Profile update(Profile profile) {
-        final var updatedUser = dslContext.update(PROFILE)
+        return dslContext.update(PROFILE)
                 .set(PROFILE.EMAIL, profile.getEmail())
                 .where(PROFILE.ID.eq(profile.getId()))
                 .returning(PROFILE)
                 .fetchOneInto(Profile.class);
-
-        updatedUser.setRole(Role.ROLE_USER);
-
-        return updatedUser;
     }
 
     public void delete(long id) {

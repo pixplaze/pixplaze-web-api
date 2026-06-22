@@ -1,11 +1,10 @@
 package com.pixplaze.api.web.configuration.security;
 
-import com.pixplaze.api.ext.data.Authority;
 import com.pixplaze.api.web.configuration.properties.CorsProperties;
 import com.pixplaze.api.web.configuration.security.filter.JwtAuthenticationFilter;
-import com.pixplaze.api.web.data.user.Profile;
+import com.pixplaze.api.web.data.user.ClientPrincipial;
 import com.pixplaze.api.web.service.ExceptionHandlerService;
-import com.pixplaze.api.web.service.UserService;
+import com.pixplaze.api.web.service.ProfileService;
 import com.pixplaze.api.web.service.auth.AccessTokenService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -36,7 +35,7 @@ import static org.springframework.security.config.http.SessionCreationPolicy.STA
 @EnableConfigurationProperties(CorsProperties.class)
 public class SecurityConfiguration {
     private final AccessTokenService accessTokenService;
-    private final UserService userService;
+    private final ProfileService profileService;
     private final ExceptionHandlerService exceptionHandlerService;
     private final CorsProperties corsProperties;
 
@@ -87,14 +86,14 @@ public class SecurityConfiguration {
 
     @Bean
     @RequestScope
-    public Profile currentUser() {
+    public static ClientPrincipial currentUser() {
         final var authentication = SecurityContextHolder.getContext().getAuthentication();
 
         if (authentication == null || !authentication.isAuthenticated() || authentication instanceof AnonymousAuthenticationToken) {
             return null;
         }
 
-        return (Profile) authentication.getPrincipal();
+        return (ClientPrincipial) authentication.getPrincipal();
     }
 
     @Bean
@@ -104,7 +103,7 @@ public class SecurityConfiguration {
 
     @Bean
     public AuthenticationProvider authenticationProvider() {
-        DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider(userService.getUserDetailsService());
+        DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider(profileService.getUserDetailsService());
         authProvider.setPasswordEncoder(passwordEncoder());
         return authProvider;
     }

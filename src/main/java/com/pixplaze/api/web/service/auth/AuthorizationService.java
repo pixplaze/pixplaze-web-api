@@ -2,11 +2,10 @@ package com.pixplaze.api.web.service.auth;
 
 import com.pixplaze.api.ext.data.auth.AuthorizationTokenInfo;
 import com.pixplaze.api.web.data.VoucherCode;
+import com.pixplaze.api.web.data.db.tables.pojos.Profile;
 import com.pixplaze.api.web.data.dto.SignInRequestInfo;
 import com.pixplaze.api.web.data.dto.SignUpRequestInfo;
-import com.pixplaze.api.web.data.user.Role;
-import com.pixplaze.api.web.data.user.Profile;
-import com.pixplaze.api.web.service.UserService;
+import com.pixplaze.api.web.service.ProfileService;
 import com.pixplaze.api.web.service.VoucherCodeService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -20,8 +19,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 @RequiredArgsConstructor
-public class AuthenticationService {
-    private final UserService userService;
+public class AuthorizationService {
+    private final ProfileService profileService;
     private final AccessTokenService accessTokenService;
     private final RefreshTokenService refreshTokenService;
     private final PasswordEncoder passwordEncoder;
@@ -38,24 +37,23 @@ public class AuthenticationService {
     public AuthorizationTokenInfo signUp(SignUpRequestInfo request) {
 
         VoucherCode voucherCode = voucherCodeService.load(request.inviteCode(), VoucherCode.Type.INVITE);
-
-        var user = Profile.builder()
-                .name(request.username())
-                .email(request.email())
-                .password(passwordEncoder.encode(request.password()))
-                .role(Role.ROLE_USER)
-                .build();
+        var profile = new Profile()
+                .setName(request.username())
+                .setEmail(request.email())
+                .setPassword(passwordEncoder.encode(request.password()));
+        var clientPrincipial = profileService.toClientPrincipial(profile);
 
         try {
-            userService.create(user);
+            var id = profileService.create(profile).getId();
+            clientPrincipial.setId(id);
         } catch (Exception e) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, e.getMessage(), e);
         }
 
-        voucherCodeService.activate(voucherCode, user);
+        voucherCodeService.activate(voucherCode, profile);
 
-        var accessToken = accessTokenService.generate(user);
-        var refreshToken = refreshTokenService.generate(user);
+        var accessToken = accessTokenService.generate(clientPrincipial);
+        var refreshToken = refreshTokenService.generate(clientPrincipial);
         return new AuthorizationTokenInfo(accessToken, refreshToken);
     }
 
@@ -66,16 +64,17 @@ public class AuthenticationService {
     public AuthorizationTokenInfo signIn(SignInRequestInfo request) {
         authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(request.username(), request.password()));
 
-        var user = userService.getUserByUsername(request.username());
-        var accessToken = accessTokenService.generate(user);
-        var refreshToken = refreshTokenService.generate(user);
+        var profile = profileService.getUserByUsername(request.username());
+        var clientPrincipial = profileService.toClientPrincipial(profile);
+        var accessToken = accessTokenService.generate(clientPrincipial);
+        var refreshToken = refreshTokenService.generate(clientPrincipial);
         return new AuthorizationTokenInfo(accessToken, refreshToken);
     }
 
     public AuthorizationTokenInfo refresh(String token) {
-        final var user = refreshTokenService.readClaims(token);
-        final var accessToken = accessTokenService.generate(user);
-        final var refreshToken = refreshTokenService.generate(user);
+        final var clientPrincipial = refreshTokenService.readClaims(token);
+        final var accessToken = accessTokenService.generate(clientPrincipial);
+        final var refreshToken = refreshTokenService.generate(clientPrincipial);
         return new AuthorizationTokenInfo(accessToken, refreshToken);
     }
 

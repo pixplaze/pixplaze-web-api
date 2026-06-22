@@ -1,5 +1,6 @@
 package com.pixplaze.api.web.data.user;
 
+import com.pixplaze.api.ext.data.Authority;
 import jakarta.annotation.Nonnull;
 import lombok.*;
 import org.springframework.security.core.GrantedAuthority;
@@ -7,28 +8,27 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
 import java.util.Collection;
-import java.util.List;
 
 @Builder
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-public class Profile implements UserDetails {
+public class ClientPrincipial implements UserDetails {
     private Long id;
     private String name;
     private String email;
     private String password;
-    private Role role = Role.ROLE_USER;
+    private Authority authority = Authority.as(Authority.Role.USER)
+            .from(Authority.Source.APPLICATION_AUTHORIZED_DEVICE)
+            .unauthorized();
 
     @Override
     public @Nonnull Collection<? extends GrantedAuthority> getAuthorities() {
-        if (role == null) {
-            return List.of();
-        }
-
-        return List.of(new SimpleGrantedAuthority(role.name()));
-//        return List.of(new SimpleGrantedAuthority(Role.ROLE_ADMIN.name()));
+        return authority.describe()
+                .stream()
+                .map(SimpleGrantedAuthority::new)
+                .toList();
     }
 
     @Override

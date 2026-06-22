@@ -1,7 +1,8 @@
 package com.pixplaze.api.web.repository;
 
 import com.pixplaze.api.web.data.VoucherCode;
-import com.pixplaze.api.web.data.user.Profile;
+import com.pixplaze.api.web.data.db.tables.pojos.Profile;
+import com.pixplaze.api.web.data.user.ClientPrincipial;
 import com.pixplaze.api.web.exception.voucher.VoucherCodeValidationException;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
@@ -98,10 +99,10 @@ public class VoucherCodeRepository {
                 .execute();
     }
 
-    public void addVoucherActivation(VoucherCode voucherCode, Profile profile) {
+    public void addVoucherActivation(VoucherCode voucherCode, ClientPrincipial clientPrincipial) {
         dslContext.insertInto(VOUCHER_CODE_ACTIVATION)
                 .set(VOUCHER_CODE_ACTIVATION.VOUCHER_CODE_ID, Objects.requireNonNull(voucherCode.id(), "Voucher code `id` field must not be null!"))
-                .set(VOUCHER_CODE_ACTIVATION.PROFILE_ID, Objects.requireNonNull(profile.getId(), "User `id` field must not be null!"))
+                .set(VOUCHER_CODE_ACTIVATION.PROFILE_ID, Objects.requireNonNull(clientPrincipial.getId(), "User `id` field must not be null!"))
                 .set(VOUCHER_CODE_ACTIVATION.ACTIVATED_AT, DSL.currentOffsetDateTime())
                 .execute();
     }

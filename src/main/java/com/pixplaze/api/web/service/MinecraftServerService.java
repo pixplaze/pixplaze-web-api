@@ -30,6 +30,7 @@ public class MinecraftServerService {
 
     @PostConstruct
     public void init() {
+// Вешает приложение при запуске
 //        final var inetSocketAddressList = minecraftServerRepository.getPixplazeServerList().stream()
 //                .map(ms -> new InetSocketAddress(ms.host(), ms.ports().java()))
 //                .toList();
@@ -83,10 +84,12 @@ public class MinecraftServerService {
         );
 
         return new MinecraftServerInfo(
+                null,
                 minecraftServer.getHost(),
                 minecraftServer.getMotd(),
                 minecraftServer.getLicense(),
                 minecraftServer.getFavicon(),
+                minecraftServer.getMotd(),
                 minecraftServer.getPorts(),
                 minecraftServerCoreInfo,
                 minecraftServerStateInfo,

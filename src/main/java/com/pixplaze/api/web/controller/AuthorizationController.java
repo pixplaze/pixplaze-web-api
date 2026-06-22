@@ -1,19 +1,18 @@
 package com.pixplaze.api.web.controller;
 
-import com.pixplaze.api.ext.data.Authority;
 import com.pixplaze.api.ext.data.auth.AuthorizationTokenInfo;
-import com.pixplaze.api.ext.data.auth.DeviceResponseInfo;
-import com.pixplaze.api.web.data.dto.DeviceConfirmRequestInfo;
+import com.pixplaze.api.web.data.dto.DeviceAuthorizationDecisionRequestInfo;
 import com.pixplaze.api.web.data.dto.ErrorResponseInfo;
 import com.pixplaze.api.web.data.dto.SignInRequestInfo;
 import com.pixplaze.api.web.data.dto.SignUpRequestInfo;
-import com.pixplaze.api.web.data.user.Profile;
-import com.pixplaze.api.web.exception.DeviceAuthorizationException;
-import com.pixplaze.api.web.exception.InvalidInviteCodeException;
+import com.pixplaze.api.web.data.user.ClientPrincipial;
+import com.pixplaze.api.web.exception.auth.DeviceAuthorizationException;
 import com.pixplaze.api.web.exception.http.NotImplementedException;
+import com.pixplaze.api.web.exception.voucher.InvalidInviteCodeException;
 import com.pixplaze.api.web.exception.voucher.VoucherCodeValidationException;
 import com.pixplaze.api.web.service.ExceptionHandlerService;
-import com.pixplaze.api.web.service.auth.AuthenticationService;
+import com.pixplaze.api.web.service.auth.AuthorizationService;
+import com.pixplaze.api.web.service.auth.device.DeviceAuthorizationService;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.IncorrectClaimException;
 import io.jsonwebtoken.MalformedJwtException;
@@ -24,7 +23,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
-import jakarta.websocket.server.PathParam;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -35,7 +33,6 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
-import tools.jackson.databind.json.JsonMapper;
 
 import java.util.Map;
 
@@ -44,19 +41,19 @@ import java.util.Map;
 @RequiredArgsConstructor
 @Tag(name = "Аутентификация")
 @RequestMapping("/auth")
-public class AuthenticationController {
+public class AuthorizationController {
     private static final String REFRESH_URL = "/auth/refresh";
 
     private final ExceptionHandlerService exceptionHandlerService;
-    private final AuthenticationService authenticationService;
-    private final JsonMapper rfc8628Serializer;
+    private final AuthorizationService authorizationService;
+    private final DeviceAuthorizationService deviceAuthorizationService;
 
     @Operation(summary = "Регистрация пользователя")
     @PostMapping("/sign-up")
     public ResponseEntity<AuthorizationTokenInfo> signUp(@RequestBody @Valid SignUpRequestInfo requestInfo) {
         try {
-            final var responseInfo = authenticationService.signUp(requestInfo);
-            final var responseCookie = authenticationService.createRefreshTokenCookie(responseInfo.refreshToken(), REFRESH_URL);
+            final var responseInfo = authorizationService.signUp(requestInfo);
+            final var responseCookie = authorizationService.createRefreshTokenCookie(responseInfo.refreshToken(), REFRESH_URL);
             return ResponseEntity.ok()
                     .header(HttpHeaders.SET_COOKIE, responseCookie.toString())
                     .body(responseInfo.safe());
@@ -68,8 +65,8 @@ public class AuthenticationController {
     @Operation(summary = "Авторизация пользователя")
     @PostMapping("/sign-in")
     public ResponseEntity<AuthorizationTokenInfo> signIn(@RequestBody @Valid SignInRequestInfo requestInfo) {
-        final var responseInfo = authenticationService.signIn(requestInfo);
-        final var responseCookie = authenticationService.createRefreshTokenCookie(responseInfo.refreshToken(), REFRESH_URL);
+        final var responseInfo = authorizationService.signIn(requestInfo);
+        final var responseCookie = authorizationService.createRefreshTokenCookie(responseInfo.refreshToken(), REFRESH_URL);
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, responseCookie.toString())
                 .body(responseInfo.safe());
@@ -85,8 +82,8 @@ public class AuthenticationController {
     public ResponseEntity<AuthorizationTokenInfo> refresh(
             @CookieValue(name = "refreshToken") String refreshToken
     ) {
-        final var AuthorizationTokenInfo = authenticationService.refresh(refreshToken);
-        final var responseCookie = authenticationService.createRefreshTokenCookie(AuthorizationTokenInfo.refreshToken(), REFRESH_URL);
+        final var AuthorizationTokenInfo = authorizationService.refresh(refreshToken);
+        final var responseCookie = authorizationService.createRefreshTokenCookie(AuthorizationTokenInfo.refreshToken(), REFRESH_URL);
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, responseCookie.toString())
@@ -94,24 +91,29 @@ public class AuthenticationController {
     }
 
     @PostMapping(
-            value = "/device/request",
+            value = "/oauth/authorize",
             consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE
     )
-    public ResponseEntity<DeviceResponseInfo> deviceRequest(
+    public ResponseEntity<?> authorize(
             @RequestParam("client_id") String clientId,
-            @RequestParam("scope") Integer scope
+            @RequestParam(value = "scope", required = false) String scope,
+            @RequestParam(value = "authorization_details", required = false) String authorizationDetails
     ) {
-        final var role = Authority.of(scope);
-        throw new NotImplementedException();
+        try {
+            return ResponseEntity.ok(deviceAuthorizationService.authorize(clientId, scope, authorizationDetails));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(exceptionHandlerService.handleException(e, null));
+        }
     }
 
     @PostMapping(
-            value = "/device/token",
+            value = "/oauth/authorize/token",
             consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE
     )
-    public ResponseEntity<?> deviceToken(
+
+    public ResponseEntity<?> poll(
             @RequestParam("grant_type") String grantType,
             @RequestParam("client_id") String clientId,
             @RequestParam("device_code") String deviceCode
@@ -121,15 +123,17 @@ public class AuthenticationController {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(Map.of("error", "unsupported_grant_type"));
         }
-        throw new NotImplementedException();
+
+        return ResponseEntity.ok(deviceAuthorizationService.poll(clientId, deviceCode));
     }
 
-    @PostMapping("/device/confirm")
-    public ResponseEntity<Boolean> deviceConfirm(
-            @AuthenticationPrincipal Profile profile,
-            @RequestBody DeviceConfirmRequestInfo deviceConfirmRequestInfo
+    @PostMapping("/oauth/authorize/grant")
+    public ResponseEntity<Boolean> approve(
+            @AuthenticationPrincipal ClientPrincipial clientPrincipial,
+            @RequestBody DeviceAuthorizationDecisionRequestInfo deviceAuthorizationDecisionRequestInfo
     ) {
-        throw new NotImplementedException();
+        deviceAuthorizationService.approve(deviceAuthorizationDecisionRequestInfo, clientPrincipial);
+        return ResponseEntity.ok(true);
     }
 
     @ExceptionHandler({DeviceAuthorizationException.class})

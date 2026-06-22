@@ -5,6 +5,7 @@ import com.pixplaze.api.web.data.dto.ErrorResponseInfo;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
@@ -17,6 +18,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
 import java.time.Instant;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -33,7 +35,7 @@ public class ExceptionHandlerService {
         if (PixplazeApiApplication.isDevelopment()) {
             message = getDetailedOrDefaultMessage(throwable, message);
             trace = getStackTrace(throwable);
-            path = getPathOrDefault(throwable, httpServletRequest.getRequestURI());
+            path = getPathOrDefault(throwable, httpServletRequest == null ? null : httpServletRequest.getRequestURI());
         } else if (httpStatus.is4xxClientError()) {
             message = getDetailedOrDefaultMessage(throwable, message);
         }
