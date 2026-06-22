@@ -1,6 +1,7 @@
 package com.pixplaze.api.web.service;
 
 import com.pixplaze.api.web.data.server.MinecraftServer;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -13,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
 
+@Slf4j
 @Service
 public class MinecraftServerPollingService {
     private static final int POLLING_BATCH_SIZE = 100;
@@ -60,7 +62,7 @@ public class MinecraftServerPollingService {
     }
 
     private void pollMinecraftServers() {
-        System.out.println("Polling Minecraft servers...");
+        log.debug("Polling Minecraft servers...");
         List<InetSocketAddress> snapshot = this.addresses;
 
         int total = snapshot.size();

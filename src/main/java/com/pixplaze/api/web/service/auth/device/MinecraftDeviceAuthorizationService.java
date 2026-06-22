@@ -7,11 +7,13 @@ import com.pixplaze.api.web.data.auth.DeviceAuthorizationState;
 import com.pixplaze.api.web.data.dto.DeviceAuthorizationDecisionRequestInfo;
 import com.pixplaze.api.web.data.user.ClientPrincipial;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class MinecraftDeviceAuthorizationService implements DeviceAuthorizationService {
@@ -76,7 +78,7 @@ public class MinecraftDeviceAuthorizationService implements DeviceAuthorizationS
                 sessionService.removeSession(session);
                 return response;
             } catch (Exception ignored) { // TODO: Implement error log
-                System.err.println(ignored);
+                log.error(ignored.getMessage(), ignored);
                 return DeviceAuthorizationResponse.error("server_error");
             }
         }

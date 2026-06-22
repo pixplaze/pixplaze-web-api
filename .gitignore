@@ -42,3 +42,5 @@ mvnw.cmd
 
 ### Private DB data ###
 /src/main/resources/db/migration/repeatable/R__insert_values_voucher_code.sql
+
+logs/

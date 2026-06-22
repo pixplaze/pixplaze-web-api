@@ -3,6 +3,7 @@ package com.pixplaze.api.web.service.auth.device;
 import com.pixplaze.api.ext.data.Authority;
 import com.pixplaze.api.web.data.auth.DeviceAuthorizationSession;
 import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -16,6 +17,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
+@Slf4j
 @Service
 public class DeviceAuthorizationSessionService {
     private final Map<String, DeviceAuthorizationSession<?>> deviceCodeHashStore = new ConcurrentHashMap<>();
