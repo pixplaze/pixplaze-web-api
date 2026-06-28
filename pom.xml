@@ -201,6 +201,23 @@
 									<name>org.jooq.meta.postgres.PostgresDatabase</name>
 									<includes>.*</includes>
 									<inputSchema>public</inputSchema>
+									<forcedTypes>
+										<forcedType>
+											<userType>com.pixplaze.api.web.data.voucher.VoucherCodeType</userType>
+											<converter>new org.jooq.impl.EnumConverter(java.lang.String.class, com.pixplaze.api.web.data.voucher.VoucherCodeType.class)</converter>
+											<includeExpression>voucher_code\.type</includeExpression>
+										</forcedType>
+										<forcedType>
+											<userType>com.pixplaze.api.web.data.server.MinecraftServerStatus</userType>
+											<converter>new org.jooq.impl.EnumConverter(java.lang.String.class, com.pixplaze.api.web.data.server.MinecraftServerStatus.class)</converter>
+											<includeExpression>minecraft_server_state\.status</includeExpression>
+										</forcedType>
+										<forcedType>
+											<userType>com.pixplaze.api.web.data.auth.RefreshTokenSubjectType</userType>
+											<converter>new org.jooq.impl.EnumConverter(java.lang.String.class, com.pixplaze.api.web.data.auth.RefreshTokenSubjectType.class)</converter>
+											<includeExpression>refresh_token\.subject_type</includeExpression>
+										</forcedType>
+									</forcedTypes>
 								</database>
 								<generate>
 									<pojos>true</pojos>     <!-- Включаем генерацию POJO-классов -->

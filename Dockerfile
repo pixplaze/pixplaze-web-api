@@ -5,7 +5,7 @@ WORKDIR /app
 
 COPY pom.xml .
 
-#RUN ./libs.sh
+#RUN ./install-libs.sh
 #
 ## Создаём директорию для Maven
 #RUN mkdir -p /root/.m2/repository

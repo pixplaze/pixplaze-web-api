@@ -2,10 +2,12 @@ package com.pixplaze.api.web.mapper;
 
 import com.pixplaze.api.ext.data.Authority;
 import com.pixplaze.api.web.data.db.tables.pojos.Profile;
-import com.pixplaze.api.web.data.user.ClientPrincipial;
+import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 import org.mapstruct.NullValuePropertyMappingStrategy;
+
+import java.util.Map;
 
 @Mapper(
         componentModel = "spring",
@@ -14,5 +16,6 @@ import org.mapstruct.NullValuePropertyMappingStrategy;
 )
 public interface ProfileMapper {
     @Mapping(target = "authority", expression = "java(Authority.as(Authority.Role.USER).from(Authority.Source.APPLICATION_AUTHORIZED_DEVICE).unauthorized())")
-    ClientPrincipial toClientPrincipial(Profile profile);
+    @Mapping(target = "ipAddress", ignore = true)
+    ApplicationClientPrincipal toApplicationClientPrincipal(Profile profile);
 }

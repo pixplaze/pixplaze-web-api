@@ -1,4 +1,5 @@
 server:
+  address: 0.0.0.0
   port: 8080
 spring:
   datasource:
@@ -15,22 +16,24 @@ spring:
   application:
     name: "pixplaze-web-api"
 app:
-  web.gateway.url: http://pixpleze.net
+  url.api.gateway: api.pixplaze.net
+  url.web.gateway: http://pixpleze.net
   security:
     auth:
       device:
         session:
           expiration.seconds: 300
           interval.seconds: 5
+          # Срок жизни сессии после grant: одобрённая сессия гаснет в узком окне (bearer-QR обратного логина).
+          grant-expiration.seconds: 15
       token:
         access:
-          expiration.minutes: 2400
-          signing:
-            key: ${JWT_ACCESS_SECRET_KEY}
+          expiration-minutes: 2400
+          kid: k1
+          private-key: ${EC_PRIVATE_KEY}
+          public-key: ${EC_PUBLIC_KEY}
         refresh:
           expiration.days: 30
-          signing:
-            key: ${JWT_REFRESH_SECRET_KEY}
     cors:
       allowed-origins:
         - "*"

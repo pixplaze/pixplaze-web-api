@@ -1,6 +1,6 @@
 package com.pixplaze.api.web.service;
 
-import com.pixplaze.api.web.data.server.MinecraftServer;
+import com.pixplaze.api.web.data.server.RawMinecraftServer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -31,7 +31,7 @@ public class MinecraftServerPollingService {
     );
 
     private final MinecraftServerMonitoringService minecraftServerMonitoringService;
-    private final Map<String, MinecraftServer> cache = new ConcurrentHashMap<>();
+    private final Map<String, RawMinecraftServer> cache = new ConcurrentHashMap<>();
     private final ThreadLocalRandom random = ThreadLocalRandom.current();
     private volatile List<InetSocketAddress> addresses = List.of();
 
@@ -53,11 +53,11 @@ public class MinecraftServerPollingService {
         this.addresses = List.copyOf(newList); // immutable snapshot
     }
 
-    public Collection<MinecraftServer> get() {
+    public Collection<RawMinecraftServer> get() {
         return cache.values();
     }
 
-    public MinecraftServer get(String host) {
+    public RawMinecraftServer get(String host) {
         return cache.get(host);
     }
 
@@ -75,7 +75,7 @@ public class MinecraftServerPollingService {
     }
 
     private void pollBatch(List<InetSocketAddress> batch) {
-        List<CompletableFuture<MinecraftServer>> futures = new ArrayList<>(batch.size());
+        List<CompletableFuture<RawMinecraftServer>> futures = new ArrayList<>(batch.size());
 
         for (InetSocketAddress address : batch) {
             futures.add(pollOne(address));
@@ -85,7 +85,7 @@ public class MinecraftServerPollingService {
         CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
     }
 
-    private CompletableFuture<MinecraftServer> pollOne(InetSocketAddress address) {
+    private CompletableFuture<RawMinecraftServer> pollOne(InetSocketAddress address) {
         return CompletableFuture.supplyAsync(() -> fetch(address), pollingExecutor)
                 .whenComplete((server, exception) -> {
                     if (server != null) {
@@ -97,7 +97,7 @@ public class MinecraftServerPollingService {
                 });
     }
 
-    private MinecraftServer fetch(InetSocketAddress address) {
+    private RawMinecraftServer fetch(InetSocketAddress address) {
         try {
             return minecraftServerMonitoringService.getServer(address);
         } catch (IOException e) {
@@ -106,7 +106,7 @@ public class MinecraftServerPollingService {
         }
     }
 
-    private void cache(MinecraftServer server) {
+    private void cache(RawMinecraftServer server) {
         cache.merge(
                 server.getHost(),
                 server,
@@ -114,7 +114,7 @@ public class MinecraftServerPollingService {
         );
     }
 
-    public MinecraftServer merge(MinecraftServer cached, MinecraftServer retrieved) {
+    public RawMinecraftServer merge(RawMinecraftServer cached, RawMinecraftServer retrieved) {
         cached.setMotd(retrieved.getMotd());
         cached.setFavicon(retrieved.getFavicon());
         cached.setCore(retrieved.getCore());

@@ -1,5 +1,9 @@
+server:
+  address: 0.0.0.0
+  port: 8080
 app:
-  web.gateway.url: http://localhost:8445
+  url.api.gateway: http://192.168.1.100:8080
+  url.web.gateway: http://192.168.1.100:5173
   security:
     auth:
       device:
@@ -7,5 +11,5 @@ app:
           expiration.seconds: 300
           interval.seconds: 5
       token:
-        access.expiration.minutes: 20160
+        access.expiration-minutes: 20160
         refresh.expiration.days: 30

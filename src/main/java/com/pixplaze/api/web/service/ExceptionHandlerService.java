@@ -1,30 +1,27 @@
 package com.pixplaze.api.web.service;
 
-import com.pixplaze.api.web.PixplazeApiApplication;
-import com.pixplaze.api.web.data.dto.ErrorResponseInfo;
+import com.pixplaze.api.web.configuration.ApplicationConfiguration;
+import com.pixplaze.api.web.data.dto.ErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
-import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.stereotype.Service;
-import org.springframework.web.ErrorResponse;
-import org.springframework.web.ErrorResponseException;
-import org.springframework.web.server.ResponseStatusException;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
 import java.time.Instant;
-import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
 public class ExceptionHandlerService {
     private final JsonMapper jsonMapper;
-    public ErrorResponseInfo handleException(Throwable throwable, HttpServletRequest httpServletRequest) {
+    private final ApplicationConfiguration applicationConfiguration;
+
+    public ErrorResponse handleException(Throwable throwable, HttpServletRequest httpServletRequest) {
         HttpStatus httpStatus = getHttpStatus(throwable);
         int status = httpStatus.value();
         String timestamp = Instant.now().toString();
@@ -32,7 +29,7 @@ public class ExceptionHandlerService {
         String trace = null;
         String path = null;
 
-        if (PixplazeApiApplication.isDevelopment()) {
+        if (applicationConfiguration.isDevelopment()) {
             message = getDetailedOrDefaultMessage(throwable, message);
             trace = getStackTrace(throwable);
             path = getPathOrDefault(throwable, httpServletRequest == null ? null : httpServletRequest.getRequestURI());
@@ -40,7 +37,7 @@ public class ExceptionHandlerService {
             message = getDetailedOrDefaultMessage(throwable, message);
         }
 
-        return new ErrorResponseInfo(status, timestamp, message, trace, path);
+        return new ErrorResponse(status, timestamp, message, trace, path);
     }
 
     public void sendErrorResponseInfo(HttpServletRequest httpServletRequest, HttpServletResponse httpServletResponse, Throwable throwable) throws IOException {
@@ -51,12 +48,12 @@ public class ExceptionHandlerService {
         }
     }
 
-    public String stringify(ErrorResponseInfo errorResponseInfo) {
-        return jsonMapper.writeValueAsString(errorResponseInfo);
+    public String stringify(ErrorResponse errorResponse) {
+        return jsonMapper.writeValueAsString(errorResponse);
     }
 
     private HttpStatus getHttpStatus(Throwable throwable) {
-        if (throwable instanceof ErrorResponse errorResponse) {
+        if (throwable instanceof org.springframework.web.ErrorResponse errorResponse) {
             return HttpStatus.resolve(errorResponse.getStatusCode().value());
         } else if (throwable instanceof AccessDeniedException) {
             return HttpStatus.FORBIDDEN;
@@ -84,7 +81,7 @@ public class ExceptionHandlerService {
     }
 
     private String getPathOrDefault(Throwable throwable, String defaultPath) {
-        if (throwable instanceof ErrorResponse errorResponse) {
+        if (throwable instanceof org.springframework.web.ErrorResponse errorResponse) {
             final var instance = errorResponse.getBody().getInstance();
             if (instance == null) {
                 return defaultPath;

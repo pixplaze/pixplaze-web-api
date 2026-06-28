@@ -1,7 +1,7 @@
 package com.pixplaze.api.web.configuration.json;
 
 import com.pixplaze.api.ext.data.player.MinecraftPlayerListInfo;
-import com.pixplaze.api.web.data.server.MinecraftServer;
+import com.pixplaze.api.web.data.server.RawMinecraftServer;
 import com.pixplaze.api.web.data.server.MinecraftServerCore;
 import com.pixplaze.api.web.data.server.MinecraftServerState;
 import tools.jackson.core.JsonParser;
@@ -9,16 +9,16 @@ import tools.jackson.core.JsonToken;
 import tools.jackson.databind.DeserializationContext;
 import tools.jackson.databind.deser.std.StdDeserializer;
 
-public class MinecraftNativeJsonDeserializer extends StdDeserializer<MinecraftServer> {
+public class MinecraftNativeJsonDeserializer extends StdDeserializer<RawMinecraftServer> {
     public MinecraftNativeJsonDeserializer() {
-        super(MinecraftServer.class);
+        super(RawMinecraftServer.class);
     }
 
     @Override
-    public synchronized MinecraftServer deserialize(JsonParser jsonParser, DeserializationContext deserializationContext) {
-        MinecraftServer minecraftServer = new MinecraftServer();
-        minecraftServer.setCore(new MinecraftServerCore());
-        minecraftServer.setState(new MinecraftServerState());
+    public synchronized RawMinecraftServer deserialize(JsonParser jsonParser, DeserializationContext deserializationContext) {
+        RawMinecraftServer rawMinecraftServer = new RawMinecraftServer();
+        rawMinecraftServer.setCore(new MinecraftServerCore());
+        rawMinecraftServer.setState(new MinecraftServerState());
 
         if (jsonParser.currentToken() == null) {
             jsonParser.nextToken();
@@ -29,14 +29,14 @@ public class MinecraftNativeJsonDeserializer extends StdDeserializer<MinecraftSe
             jsonParser.nextToken();
 
             switch (fieldName) {
-                case "description" -> minecraftServer.setMotd(jsonParser.getValueAsString());
-                case "favicon" -> minecraftServer.setFavicon(jsonParser.getValueAsString());
+                case "description" -> rawMinecraftServer.setMotd(jsonParser.getValueAsString());
+                case "favicon" -> rawMinecraftServer.setFavicon(jsonParser.getValueAsString());
                 case "version" -> {
                     while (jsonParser.nextToken() != JsonToken.END_OBJECT) {
                         String vField = jsonParser.currentName();
                         jsonParser.nextToken();
                         if ("name".equals(vField)) {
-                            minecraftServer.getCore().setName(jsonParser.getValueAsString());
+                            rawMinecraftServer.getCore().setName(jsonParser.getValueAsString());
                         } else {
                             jsonParser.skipChildren();
                         }
@@ -57,7 +57,7 @@ public class MinecraftNativeJsonDeserializer extends StdDeserializer<MinecraftSe
                             jsonParser.skipChildren();
                         }
 
-                        minecraftServer.getState().setPlayers(new MinecraftPlayerListInfo(playersMax, playersOnline));
+                        rawMinecraftServer.getState().setPlayers(new MinecraftPlayerListInfo(playersMax, playersOnline));
                     }
                 }
 
@@ -65,6 +65,6 @@ public class MinecraftNativeJsonDeserializer extends StdDeserializer<MinecraftSe
             }
         }
 
-        return minecraftServer;
+        return rawMinecraftServer;
     }
 }

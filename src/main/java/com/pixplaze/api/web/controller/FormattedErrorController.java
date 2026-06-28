@@ -1,6 +1,6 @@
 package com.pixplaze.api.web.controller;
 
-import com.pixplaze.api.web.data.dto.ErrorResponseInfo;
+import com.pixplaze.api.web.data.dto.ErrorResponse;
 import com.pixplaze.api.web.service.ExceptionHandlerService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -24,9 +24,9 @@ public class FormattedErrorController implements ErrorController {
         this.exceptionHandlerService = exceptionHandlerService;
     }
 
-    // TODO: Убрал этот RequestMapping, с ним приходится обрабатывать вообще все ошибки, если не понадобится -      ёудалить
+    // TODO: Убрал этот RequestMapping, с ним приходится обрабатывать вообще все ошибки, если не понадобится - удалить
 //    @RequestMapping("/error")
-    public ResponseEntity<ErrorResponseInfo> handleException(WebRequest webRequest, HttpServletRequest httpServletRequest, HttpServletResponse httpServletResponse) {
+    public ResponseEntity<ErrorResponse> handleException(WebRequest webRequest, HttpServletRequest httpServletRequest, HttpServletResponse httpServletResponse) {
         final var exception = ExceptionHandlerService.unwrapException(errorAttributes.getError(webRequest));
         final var errorResponseInfo = exceptionHandlerService.handleException(
                 exception,
@@ -37,7 +37,7 @@ public class FormattedErrorController implements ErrorController {
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponseInfo> handleException(Exception exception, HttpServletRequest httpServletRequest) {
+    public ResponseEntity<ErrorResponse> handleException(Exception exception, HttpServletRequest httpServletRequest) {
         final var errorResponseInfo = exceptionHandlerService.handleException(exception, httpServletRequest);
         return ResponseEntity.status(errorResponseInfo.status()).body(errorResponseInfo);
     }

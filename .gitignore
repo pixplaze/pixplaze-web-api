@@ -33,15 +33,18 @@ build/
 ### VS Code ###
 .vscode/
 
+.m2/
 .mvn/
 mvnw
 mvnw.cmd
 
-.m2/
-.gradle
+.gradle/
+
+logs/
+src/test/resources/http/
 
 ### Private Data ###
 /src/main/resources/db/migration/repeatable/R__insert_values_voucher_code.sql
 .env
-
-logs/
+*.pem
+*.der

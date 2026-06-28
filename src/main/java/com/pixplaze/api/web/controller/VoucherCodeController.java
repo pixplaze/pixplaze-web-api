@@ -1,7 +1,8 @@
 package com.pixplaze.api.web.controller;
 
-import com.pixplaze.api.web.data.VoucherCode;
-import com.pixplaze.api.web.data.dto.ErrorResponseInfo;
+import com.pixplaze.api.web.data.db.tables.pojos.VoucherCode;
+import com.pixplaze.api.web.data.dto.ErrorResponse;
+import com.pixplaze.api.web.data.voucher.VoucherCodeType;
 import com.pixplaze.api.web.exception.voucher.VoucherCodeValidationException;
 import com.pixplaze.api.web.service.ExceptionHandlerService;
 import com.pixplaze.api.web.service.VoucherCodeService;
@@ -41,7 +42,7 @@ public class VoucherCodeController {
     @PostMapping("/invite/validate/{voucherCode}")
     public boolean isInviteVoucherCodeValid(@PathVariable String voucherCode) {
         try {
-            voucherCodeService.load(voucherCode, VoucherCode.Type.INVITE);
+            voucherCodeService.load(voucherCode, VoucherCodeType.INVITE);
             return true;
         } catch (VoucherCodeValidationException e) {
             return false;
@@ -50,11 +51,11 @@ public class VoucherCodeController {
 
     @GetMapping("/invite/message/{voucherCode}")
     public String getInviteCodeMessage(@PathVariable String voucherCode) {
-        return voucherCodeService.load(voucherCode, VoucherCode.Type.INVITE).message();
+        return voucherCodeService.load(voucherCode, VoucherCodeType.INVITE).getMessage();
     }
 
     @ExceptionHandler(RuntimeException.class)
-    public ResponseEntity<ErrorResponseInfo> handleVoucherCodeValidationException(RuntimeException exception, HttpServletRequest httpServletRequest) {
+    public ResponseEntity<ErrorResponse> handleVoucherCodeValidationException(RuntimeException exception, HttpServletRequest httpServletRequest) {
         return ResponseEntity.status(HttpStatus.NOT_ACCEPTABLE)
                 .body(exceptionHandlerService.handleException(exception, httpServletRequest));
     }

@@ -13,7 +13,6 @@ import org.springframework.web.util.UriComponentsBuilder;
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
-import java.util.Set;
 
 public class MinecraftServerApiService implements MinecraftServerApi {
 
@@ -62,7 +61,7 @@ public class MinecraftServerApiService implements MinecraftServerApi {
     }
 
     @Override
-    public Set<MinecraftPlayerInfo> getOnlinePlayers() {
+    public List<MinecraftPlayerInfo> getOnlinePlayers() {
         return restClient.get().uri("/server/players?view={view}")
                 .attribute("view", "online")
                 .retrieve()
@@ -70,7 +69,7 @@ public class MinecraftServerApiService implements MinecraftServerApi {
     }
 
     @Override
-    public Set<MinecraftPlayerInfo> getOfflinePlayers() {
+    public List<MinecraftPlayerInfo> getOfflinePlayers() {
         return restClient.get().uri("/server/players?view={view}")
                 .attribute("view", "offline")
                 .retrieve()
@@ -78,7 +77,7 @@ public class MinecraftServerApiService implements MinecraftServerApi {
     }
 
     @Override
-    public Set<MinecraftPlayerInfo> getBannedPlayers() {
+    public List<MinecraftPlayerInfo> getBannedPlayers() {
         return restClient.get().uri("/server/players?view={view}")
                 .attribute("view", "banned")
                 .retrieve()
@@ -86,7 +85,7 @@ public class MinecraftServerApiService implements MinecraftServerApi {
     }
 
     @Override
-    public Set<MinecraftPlayerInfo> getWhitelistedPlayers() {
+    public List<MinecraftPlayerInfo> getWhitelistedPlayers() {
         return restClient.get().uri("/server/players?view={view}")
                 .attribute("view", "whitelisted")
                 .retrieve()
@@ -94,7 +93,7 @@ public class MinecraftServerApiService implements MinecraftServerApi {
     }
 
     @Override
-    public Set<MinecraftPlayerInfo> getOpPlayers() {
+    public List<MinecraftPlayerInfo> getOpPlayers() {
         return restClient.get().uri("/server/players?view={view}")
                 .attribute("view", "operators")
                 .retrieve()
@@ -102,7 +101,7 @@ public class MinecraftServerApiService implements MinecraftServerApi {
     }
 
     @Override
-    public Set<MinecraftPlayerInfo> getAllPlayers() {
+    public List<MinecraftPlayerInfo> getAllPlayers() {
         return restClient.get().uri("/server/players?view={view}")
                 .attribute("view", "all")
                 .retrieve()

@@ -6,7 +6,7 @@ import lombok.Data;
 import java.util.List;
 
 @Data
-public class MinecraftServer {
+public class RawMinecraftServer {
     private String host;
     private String motd;
     private Boolean license;

@@ -1,6 +1,7 @@
 package com.pixplaze.api.web.service.auth.device;
 
 import com.pixplaze.api.ext.data.Authority;
+import org.springframework.aop.support.AopUtils;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -17,7 +18,7 @@ public class DeviceAuthorizationStrategyFactory {
     public DeviceAuthorizationStrategyFactory(List<DeviceAuthorizationStrategy<?, ?>> strategyList) {
         this.strategies = strategyList.stream()
                 .collect(Collectors.toMap(
-                        DeviceAuthorizationStrategy::getClass,
+                        AopUtils::getTargetClass,
                         Function.identity()
                 ));
     }
@@ -27,17 +28,19 @@ public class DeviceAuthorizationStrategyFactory {
      * Параметр <T> гарантирует приведение к нужному типу дженерика на вызывающей стороне.
      */
     @SuppressWarnings("unchecked")
-    public <D, T> DeviceAuthorizationStrategy<D, T> of(Authority authority) {
-        if (authority.from(Authority.Source.MINECRAFT_AUTHORIZED_DEVICE) && authority.is(Authority.Role.USER)) {
-            return (DeviceAuthorizationStrategy<D, T>) strategies.get(MinecraftPlayerAuthorizationStrategy.class);
+    public <A, T> DeviceAuthorizationStrategy<A, T> of(Authority authority) {
+        if (authority.from(Authority.Source.MINECRAFT_AUTHORIZED_DEVICE)) {
+            if (authority.is(Authority.Role.MINECRAFT_SERVER)) {
+                return (DeviceAuthorizationStrategy<A, T>) strategies.get(MinecraftServerAuthorizationStrategy.class);
+            }
+
+            if (authority.is(Authority.Role.MINECRAFT_PLAYER) || authority.is(Authority.Role.MINECRAFT_OPERATOR)) {
+                return (DeviceAuthorizationStrategy<A, T>) strategies.get(MinecraftPlayerAuthorizationStrategy.class);
+            }
         }
 
-        if (authority.from(Authority.Source.MINECRAFT_AUTHORIZED_DEVICE) && authority.is(Authority.Role.ADMINISTRATOR)) {
-            return (DeviceAuthorizationStrategy<D, T>) strategies.get(MinecraftPlayerAuthorizationStrategy.class);
-        }
-
-        if (authority.from(Authority.Source.MINECRAFT_AUTHORIZED_DEVICE) && authority.is(Authority.Role.APPLICATION)) {
-            return (DeviceAuthorizationStrategy<D, T>) strategies.get(MinecraftPlayerAuthorizationStrategy.class);
+        if (authority.from(Authority.Source.APPLICATION_AUTHORIZED_DEVICE)) {
+            return (DeviceAuthorizationStrategy<A, T>) strategies.get(ProfileAuthorizationStrategy.class);
         }
 
         throw new IllegalStateException();

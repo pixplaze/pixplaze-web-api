@@ -1,7 +1,7 @@
 package com.pixplaze.api.web.configuration.json;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
-import com.pixplaze.api.web.data.server.MinecraftServer;
+import com.pixplaze.api.web.data.server.RawMinecraftServer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -14,7 +14,7 @@ import tools.jackson.databind.module.SimpleModule;
 @Configuration
 public class JsonConfiguration {
     private static final SimpleModule MINECRAFT_NATIVE_JSON_MODULE = new SimpleModule("MINECRAFT_NATIVE_JSON_MODULE")
-            .addDeserializer(MinecraftServer.class, new MinecraftNativeJsonDeserializer());
+            .addDeserializer(RawMinecraftServer.class, new MinecraftNativeJsonDeserializer());
 
     @Bean
     @Primary

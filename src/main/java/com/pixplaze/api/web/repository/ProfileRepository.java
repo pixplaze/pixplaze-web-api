@@ -69,6 +69,12 @@ public class ProfileRepository {
         );
     }
 
+    public Optional<Profile> findById(Long id) {
+        return dslContext.select().from(PROFILE)
+                .where(PROFILE.ID.eq(id))
+                .fetchOptionalInto(Profile.class);
+    }
+
     public List<Profile> getAllByUsernameStartingWith(String username) {
         return dslContext.select().from(PROFILE)
                 .where(PROFILE.NAME.like(username + "%"))

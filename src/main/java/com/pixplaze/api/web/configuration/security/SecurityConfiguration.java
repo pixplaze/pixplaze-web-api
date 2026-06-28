@@ -1,11 +1,12 @@
 package com.pixplaze.api.web.configuration.security;
 
+import com.pixplaze.api.web.configuration.properties.AccessTokenProperties;
 import com.pixplaze.api.web.configuration.properties.CorsProperties;
 import com.pixplaze.api.web.configuration.security.filter.JwtAuthenticationFilter;
-import com.pixplaze.api.web.data.user.ClientPrincipial;
+import com.pixplaze.api.web.data.user.ClientPrincipal;
 import com.pixplaze.api.web.service.ExceptionHandlerService;
 import com.pixplaze.api.web.service.ProfileService;
-import com.pixplaze.api.web.service.auth.AccessTokenService;
+import com.pixplaze.api.web.service.auth.ClientPrincipalReader;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -32,9 +33,9 @@ import static org.springframework.security.config.http.SessionCreationPolicy.STA
 @Configuration
 @RequiredArgsConstructor
 @EnableMethodSecurity
-@EnableConfigurationProperties(CorsProperties.class)
+@EnableConfigurationProperties({CorsProperties.class, AccessTokenProperties.class})
 public class SecurityConfiguration {
-    private final AccessTokenService accessTokenService;
+    private final ClientPrincipalReader clientPrincipalReader;
     private final ProfileService profileService;
     private final ExceptionHandlerService exceptionHandlerService;
     private final CorsProperties corsProperties;
@@ -45,7 +46,7 @@ public class SecurityConfiguration {
         http.cors(this::configureCors);
         http.authorizeHttpRequests(this::configureHttpRequests);
         http.sessionManagement(this::configureSessionManagement);
-        http.addFilterBefore(new JwtAuthenticationFilter(accessTokenService), UsernamePasswordAuthenticationFilter.class);
+        http.addFilterBefore(new JwtAuthenticationFilter(clientPrincipalReader), UsernamePasswordAuthenticationFilter.class);
         http.exceptionHandling(this::configureExceptionHandler);
         return http.build();
     }
@@ -67,6 +68,7 @@ public class SecurityConfiguration {
 
     private void configureHttpRequests(AuthorizeHttpRequestsConfigurer<HttpSecurity>.AuthorizationManagerRequestMatcherRegistry auth) {
         auth.requestMatchers("/auth/device/confirm").authenticated();
+        auth.requestMatchers("/auth/oauth/keys").hasAllAuthorities("SOURCE_MINECRAFT_AUTHORIZED_DEVICE", "ROLE_MINECRAFT_SERVER");
         auth.requestMatchers("/auth/**").permitAll();
         auth.requestMatchers("/vouchers/invite/**").permitAll();
         auth.requestMatchers("/error/**").permitAll();
@@ -86,14 +88,14 @@ public class SecurityConfiguration {
 
     @Bean
     @RequestScope
-    public static ClientPrincipial currentUser() {
+    public static ClientPrincipal currentUser() {
         final var authentication = SecurityContextHolder.getContext().getAuthentication();
 
         if (authentication == null || !authentication.isAuthenticated() || authentication instanceof AnonymousAuthenticationToken) {
             return null;
         }
 
-        return (ClientPrincipial) authentication.getPrincipal();
+        return (ClientPrincipal) authentication.getPrincipal();
     }
 
     @Bean

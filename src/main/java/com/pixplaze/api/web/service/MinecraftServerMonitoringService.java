@@ -1,7 +1,7 @@
 package com.pixplaze.api.web.service;
 
 import com.pixplaze.api.ext.data.server.MinecraftServerPortsInfo;
-import com.pixplaze.api.web.data.server.MinecraftServer;
+import com.pixplaze.api.web.data.server.RawMinecraftServer;
 import com.pixplaze.api.web.data.server.MinecraftServerState;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -29,11 +29,11 @@ public class MinecraftServerMonitoringService {
         this.jsonMapper = jsonMapper;
     }
 
-    public MinecraftServer getServer(String host, int port) throws IOException {
+    public RawMinecraftServer getServer(String host, int port) throws IOException {
         return getServer(new InetSocketAddress(host, port));
     }
 
-    public MinecraftServer getServer(InetSocketAddress socketAddress) throws IOException {
+    public RawMinecraftServer getServer(InetSocketAddress socketAddress) throws IOException {
         try (Socket socket = new Socket()) {
             socket.setSoTimeout(10000);
             socket.connect(socketAddress);
@@ -61,13 +61,13 @@ public class MinecraftServerMonitoringService {
             long ping = readPingResponse(in);
             byteBufferOut.clear();
 
-            MinecraftServer minecraftServer = jsonMapper.readValue(json, MinecraftServer.class);
-            minecraftServer.setHost(socketAddress.getHostName());
-            minecraftServer.setPorts(new MinecraftServerPortsInfo(socket.getPort()));
-            minecraftServer.setState(new MinecraftServerState());
-            minecraftServer.getState().setPing(ping);
+            RawMinecraftServer rawMinecraftServer = jsonMapper.readValue(json, RawMinecraftServer.class);
+            rawMinecraftServer.setHost(socketAddress.getHostName());
+            rawMinecraftServer.setPorts(new MinecraftServerPortsInfo(socket.getPort()));
+            rawMinecraftServer.setState(new MinecraftServerState());
+            rawMinecraftServer.getState().setPing(ping);
 
-            return minecraftServer;
+            return rawMinecraftServer;
         }
     }
 

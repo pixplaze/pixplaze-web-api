@@ -1,0 +1,5 @@
+CREATE TABLE role (
+    code VARCHAR(4) NOT NULL PRIMARY KEY,
+    name VARCHAR(32) NOT NULL UNIQUE,
+    description VARCHAR(128) DEFAULT NULL
+);
