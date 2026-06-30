@@ -1,5 +1,5 @@
 services:
-
+  # Контейнер базы данных
   db:
     image: postgres:16
     container_name: pixplaze-db
@@ -17,25 +17,29 @@ services:
       - "5432:5432"
     volumes:
       - pixplaze_db_data:/var/lib/postgresql/data
-
+  # Контейнер API
   api:
-    image: pixplaze-web-api
-    build:
-      context: .
-      dockerfile: Dockerfile
-#    volumes:
-#      - ~/.m2/:/root/.m2
+    # Образ собирается отдельно (docker build) и переносится готовым (docker save/load) — см. README.
+    # Здесь только запуск: ни локальная, ни удалённая машина не собирают образ из исходников.
+    image: pixplaze-web-api:${PIXPLAZE_TAG:-latest}
     container_name: pixplaze-web-api
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
     ports:
       - "8080:8080"
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${PIXPLAZE_DB}
-      SPRING_DATASOURCE_USERNAME: ${PIXPLAZE_DB_USERNAME}
-      SPRING_DATASOURCE_PASSWORD: ${PIXPLAZE_DB_PASSWORD}
-      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      # Настройки переменных среды для базы данных
+      PIXPLAZE_DB_URL: jdbc:postgresql://db:5432/${PIXPLAZE_DB}
+      PIXPLAZE_DB_USERNAME: ${PIXPLAZE_DB_USERNAME}
+      PIXPLAZE_DB_PASSWORD: ${PIXPLAZE_DB_PASSWORD}
+      # Настройки переменных среды gateway для API и веб-приложения
+      PIXPLAZE_WEB_API_URL: ${PIXPLAZE_WEB_API_URL}
+      PIXPLAZE_WEB_APP_URL: ${PIXPLAZE_WEB_APP_URL}
+      # Настройки переменных среды с ES256-ключами для подписи токенов
+      EC_PRIVATE_KEY: ${EC_PRIVATE_KEY}
+      EC_PUBLIC_KEY: ${EC_PUBLIC_KEY}
 
 volumes:
   pixplaze_db_data:

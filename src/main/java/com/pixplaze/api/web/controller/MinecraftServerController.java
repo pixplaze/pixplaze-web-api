@@ -1,6 +1,7 @@
 package com.pixplaze.api.web.controller;
 
 import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
+import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServer;
 import com.pixplaze.api.web.data.dto.MinecraftServerBidRequest;
 import com.pixplaze.api.web.data.dto.MinecraftServerBidResponse;
 import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
@@ -59,5 +60,15 @@ public class MinecraftServerController {
                 bid.getId(), bid.getName(), bid.getHost(), bid.getOwnerUsername(), result.code()
         );
         return ResponseEntity.status(HttpStatus.CREATED).body(body);
+    }
+
+    @PostMapping("/favorite")
+    public void addFavorite(@RequestParam List<Long> serverIds) {
+
+    }
+
+    @GetMapping("/favorite")
+    public ResponseEntity<List<MinecraftServer>> getFavorite(@AuthenticationPrincipal ApplicationClientPrincipal applicationClientPrincipal) {
+        return ResponseEntity.ok(minecraftServerService.getFavorite(applicationClientPrincipal.getId()));
     }
 }

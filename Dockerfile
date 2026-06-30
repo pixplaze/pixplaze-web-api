@@ -1,45 +1,26 @@
-# ---- Stage 1: build ----
-FROM maven:3.9.9-eclipse-temurin-17 AS build
+# Runtime-only образ.
+#
+# Hermetic-сборка внутри docker build НЕВОЗМОЖНА: jOOQ codegen на фазе generate-sources
+# подключается к живой, уже мигрированной Postgres (env PIXPLAZE_DB_*), а Flyway-плагин
+# применяет миграции. Поэтому jar собирается на хосте (см. README, раздел «Сборка»),
+# а образ лишь упаковывает готовый артефакт. ext-api и прочие зависимости уже внутри
+# fat-jar (spring-boot repackage), отдельно их класть не нужно.
+#
+# Артефакт по умолчанию — target/pixplaze-web-api-<version>.jar; версию можно переопределить:
+#   docker build --build-arg JAR=target/pixplaze-web-api-1.2.3.jar .
+
+FROM eclipse-temurin:17-jre-jammy
 
 WORKDIR /app
 
-COPY pom.xml .
+# Непривилегированный пользователь для рантайма
+RUN groupadd --system app && useradd --system --gid app --uid 1001 app
 
-#RUN ./install-libs.sh
-#
-## Создаём директорию для Maven
-#RUN mkdir -p /root/.m2/repository
-#
-## Копируем только нужные файлы из bind mount
-#RUN cp -r /libs /root/.m2/repository/ || true
-#
-## Загружаем все зависимости Maven оффлайн
-#RUN --mount=type=cache,target=/root/.m2 \
-#    mvn -B -e -DskipTests dependency:go-offline \
+ARG JAR=target/pixplaze-web-api-1.0.0.jar
+COPY --chown=app:app ${JAR} app.jar
 
-COPY .m2/repository/com/pixplaze/api/pixplaze-ext-api/1.0.0/pixplaze-ext-api-1.0.0.jar /tmp/
-RUN mvn install:install-file \
-  -Dfile=/tmp/pixplaze-ext-api-1.0.0.jar \
-  -DgroupId=com.pixplaze.api \
-  -DartifactId=pixplaze-ext-api \
-  -Dversion=1.0.0 \
-  -Dpackaging=jar
-
-#RUN --mount=type=cache,target=/root/.m2 \
-#    mvn -X -B -e -DskipTests dependency:go-offline
-
-COPY src ./src
-
-RUN mvn -q -DskipTests package
-
-
-# ---- Stage 2: runtime ----
-FROM eclipse-temurin:17-jdk-jammy
-
-WORKDIR /app
-
-COPY --from=build /app/target/pixplaze-web-api-0.0.1-SNAPSHOT.jar app.jar
-
+USER app
 EXPOSE 8080
 
-ENTRYPOINT ["java","-jar","app.jar"]
+# Доп. JVM-флаги пробрасываются через JAVA_TOOL_OPTIONS (JVM читает её сама).
+ENTRYPOINT ["java", "-jar", "app.jar"]

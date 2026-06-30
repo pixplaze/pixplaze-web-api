@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -23,6 +24,7 @@ public class ProfileService {
     private final ProfileRepository profileRepository;
     private final ProfileMapper profileMapper;
     private final MinecraftPlayerService minecraftPlayerService;
+    private final MinecraftServerService minecraftServerService;
 
     @Value("${app.url.api.gateway}")
     private String apiGateway;
@@ -78,6 +80,14 @@ public class ProfileService {
         principal.setPlayers(loadLinkedPlayers(principal.getId()));
         applyAuthority(principal);
         return principal;
+    }
+
+    public void linkMinecraftPlayer(Long profileId, UUID playerUuid) {
+        minecraftPlayerService.linkProfile(playerUuid, profileId);
+    }
+
+    public void addMinecraftServerFavorite(Long profileId, Long serverId) {
+        minecraftServerService.addFavorite(serverId, profileId);
     }
 
     /// Связанные MC-игроки профиля (uuid/имя/голова скина/флаг оператора) — источник ролей

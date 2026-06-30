@@ -36,11 +36,11 @@ public class MinecraftPlayerAuthorizationStrategy implements DeviceAuthorization
     /// долгую сессию, а отзывать её можно через refresh-цепочку.
     private static final Duration MINECRAFT_PLAYER_ACCESS_TTL = Duration.ofDays(2);
 
+    private final RefreshTokenService refreshTokenService;
+    private final MinecraftPlayerAccessTokenService minecraftPlayerAccessTokenService;
     private final MinecraftPlayerService minecraftPlayerService;
     private final MinecraftServerService minecraftServerService;
     private final MinecraftPlayerMapper minecraftPlayerMapper;
-    private final MinecraftPlayerAccessTokenService minecraftPlayerAccessTokenService;
-    private final RefreshTokenService refreshTokenService;
     private final JsonMapper jsonMapper;
 
     @Override
@@ -99,10 +99,14 @@ public class MinecraftPlayerAuthorizationStrategy implements DeviceAuthorization
             // Фиксируем членство игрока на сервере (если он зарегистрирован) — ребро игрок↔сервер,
             // благодаря которому host попадает в aud токена профиля. Незарегистрированный сервер пропускаем.
             minecraftServerService.findByHost(authorizationDetails.host())
-                    .ifPresent(server -> minecraftServerService.linkPlayer(
-                            server.getId(),
-                            authorizationDetails.uuid(),
-                            Boolean.TRUE.equals(authorizationDetails.isOperator())));
+                    .ifPresentOrElse(server -> {
+                        minecraftServerService.linkPlayer(
+                                server.getId(),
+                                authorizationDetails.uuid(),
+                                Boolean.TRUE.equals(authorizationDetails.isOperator())
+                        );
+                        minecraftServerService.addFavorite(server.getId(), approverPrincipal.getId());
+                    }, this::exceptionAccessDenied);
 
 //            grantApproverRequestedRoles(approverPrincipal, sessionState.authority());
 

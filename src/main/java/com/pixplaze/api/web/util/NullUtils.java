@@ -3,6 +3,8 @@ package com.pixplaze.api.web.util;
 import jakarta.annotation.Nonnull;
 import jakarta.annotation.Nullable;
 
+import java.util.Collection;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -25,6 +27,18 @@ public class NullUtils {
 
     public static boolean nonZeroOrNull(@Nullable Integer number) {
         return !isZeroOrNull(number);
+    }
+
+    public static boolean isNullOrEmpty(Collection<?> collection) {
+        return collection == null || collection.isEmpty();
+    }
+
+    public static boolean isNullOrEmpty(Map<?, ?> map) {
+        return map == null || map.isEmpty();
+    }
+
+    public static <T> T nullOf(Class<T> typeClass) {
+        return typeClass.cast(null);
     }
 
     public static <T> T requireNonNull(T value, String messagePattern, Object... messageParameters) {

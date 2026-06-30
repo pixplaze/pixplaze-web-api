@@ -57,7 +57,7 @@ Configuration:
             basePath: ${LOG_DIR}/archive
             maxDepth: 1
             IfLastModified:
-              age: 10d
+              - age: 10d
 
   Loggers:
 

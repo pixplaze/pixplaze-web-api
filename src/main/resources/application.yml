@@ -16,8 +16,8 @@ spring:
   application:
     name: "pixplaze-web-api"
 app:
-  url.api.gateway: api.pixplaze.net
-  url.web.gateway: http://pixpleze.net
+  url.api.gateway: ${PIXPLAZE_WEB_API_URL}
+  url.app.gateway: ${PIXPLAZE_WEB_APP_URL}
   security:
     auth:
       device:

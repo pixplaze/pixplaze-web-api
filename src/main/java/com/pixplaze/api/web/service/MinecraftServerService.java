@@ -7,6 +7,7 @@ import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServer;
 import com.pixplaze.api.web.data.server.MinecraftServerStatus;
 import com.pixplaze.api.web.data.server.RawMinecraftServer;
 import com.pixplaze.api.web.exception.http.NotFoundException;
+import com.pixplaze.api.web.repository.MinecraftPlayerRepository;
 import com.pixplaze.api.web.repository.MinecraftServerRepository;
 import com.pixplaze.api.web.service.api.server.MinecraftServerApiService;
 import jakarta.annotation.PostConstruct;
@@ -21,12 +22,14 @@ public class MinecraftServerService {
     private final MinecraftServerRepository minecraftServerRepository;
     private final Map<MinecraftServerInfo, MinecraftServerApiService> minecraftServerApiServiceMap;
     private final MinecraftServerPollingService minecraftServerPollingService;
+    private final MinecraftPlayerRepository minecraftPlayerRepository;
 
     @Autowired
-    public MinecraftServerService(MinecraftServerRepository minecraftServerRepository, MinecraftServerPollingService minecraftServerPollingService) {
+    public MinecraftServerService(MinecraftServerRepository minecraftServerRepository, MinecraftServerPollingService minecraftServerPollingService, MinecraftPlayerRepository minecraftPlayerRepository) {
         this.minecraftServerRepository = minecraftServerRepository;
         this.minecraftServerPollingService = minecraftServerPollingService;
         this.minecraftServerApiServiceMap = new HashMap<>();
+        this.minecraftPlayerRepository = minecraftPlayerRepository;
     }
 
     @PostConstruct
@@ -167,5 +170,21 @@ public class MinecraftServerService {
         minecraftServerApiServiceMap.put(pixplazeServerInfo, serverApi);
 
         return serverApi;
+    }
+
+    public void addFavorite(Long serverId, Long profileId) {
+        minecraftServerRepository.addFavorite(serverId, profileId);
+    }
+
+    public void addFavorite(List<Long> serverIds, Long profileId) {
+        minecraftServerRepository.addFavorite(serverIds, profileId);
+    }
+
+    public void removeFavorite(Long serverId, Long profileId) {
+        minecraftServerRepository.removeFavorite(serverId, profileId);
+    }
+
+    public List<MinecraftServer> getFavorite(Long profileId) {
+        return minecraftServerRepository.getFavorite(profileId);
     }
 }

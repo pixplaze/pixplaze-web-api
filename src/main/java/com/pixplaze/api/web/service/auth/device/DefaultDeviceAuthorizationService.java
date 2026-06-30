@@ -22,7 +22,7 @@ public class DefaultDeviceAuthorizationService implements DeviceAuthorizationSer
     private final DeviceAuthorizationSessionService sessionService;
     private final DeviceAuthorizationStrategyFactory strategyFactory;
 
-    @Value("${app.url.web.gateway}")
+    @Value("${app.url.app.gateway}")
     private String webApplicationUrl;
 
     @Override

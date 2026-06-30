@@ -3,7 +3,7 @@ server:
   port: 8080
 app:
   url.api.gateway: http://192.168.1.100:8080
-  url.web.gateway: http://192.168.1.100:5173
+  url.app.gateway: http://192.168.1.100:5173
   security:
     auth:
       device:

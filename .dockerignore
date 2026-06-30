@@ -1,5 +1,12 @@
-.git
-.gitignore
-.gitattributes
-*.iml
-.idea/
+# Runtime-образу нужен только собранный jar из target/. Всё лишнее — вон из контекста.
+*
+!target
+
+# Из target оставляем лишь исполняемые jar (не .original, не classes/generated-sources)
+target/*
+!target/*.jar
+
+# Секреты и локальное в образ не попадают (env передаётся compose'ом в рантайме)
+.env
+*.pem
+*.der

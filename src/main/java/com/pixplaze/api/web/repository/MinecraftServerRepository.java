@@ -4,17 +4,14 @@ import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerPortsInfo;
 import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServer;
 import com.pixplaze.api.web.data.server.MinecraftServerStatus;
+import com.pixplaze.api.web.util.NullUtils;
 import lombok.AllArgsConstructor;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
-import java.util.Collection;
-import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
 
 import static com.pixplaze.api.web.data.db.Tables.*;
 
@@ -174,23 +171,35 @@ public class MinecraftServerRepository {
     /// Пакетно привязывает операторов к серверу одним INSERT ({@code is_operator = true}); владелец
     /// ({@code ownerUuid}) помечается {@code is_owner = true}. Существующие пары игнорируются.
     public void linkOperators(Long serverId, Collection<UUID> operatorUuids, UUID ownerUuid) {
-        if (operatorUuids.isEmpty()) {
+        if (NullUtils.isNullOrEmpty(operatorUuids)) {
             return;
         }
-        var insert = dslContext.insertInto(
-                MINECRAFT_SERVER_PLAYER,
-                MINECRAFT_SERVER_PLAYER.MINECRAFT_PLAYER_UUID,
-                MINECRAFT_SERVER_PLAYER.MINECRAFT_SERVER_ID,
-                MINECRAFT_SERVER_PLAYER.IS_OPERATOR,
-                MINECRAFT_SERVER_PLAYER.IS_OWNER
-        );
-        for (final var uuid : operatorUuids) {
-            insert = insert.values(uuid, serverId, true, uuid.equals(ownerUuid));
+
+        // 1. Статический шаблон запроса (План компилируется базой 1 раз)
+        var query = dslContext.insertInto(MINECRAFT_SERVER_PLAYER)
+                .columns(
+                        MINECRAFT_SERVER_PLAYER.MINECRAFT_PLAYER_UUID,
+                        MINECRAFT_SERVER_PLAYER.MINECRAFT_SERVER_ID,
+                        MINECRAFT_SERVER_PLAYER.IS_OPERATOR,
+                        MINECRAFT_SERVER_PLAYER.IS_OWNER
+                )
+                .onConflict(MINECRAFT_SERVER_PLAYER.MINECRAFT_PLAYER_UUID, MINECRAFT_SERVER_PLAYER.MINECRAFT_SERVER_ID)
+                .doNothing();
+
+        var batch = dslContext.batch(query);
+
+        for (UUID uuid : operatorUuids) {
+            batch.bind(
+                    uuid,
+                    serverId,
+                    true,
+                    uuid.equals(ownerUuid)
+            );
         }
-        insert.onConflict(MINECRAFT_SERVER_PLAYER.MINECRAFT_PLAYER_UUID, MINECRAFT_SERVER_PLAYER.MINECRAFT_SERVER_ID)
-                .doNothing()
-                .execute();
+
+        batch.execute();
     }
+
 
     public boolean isPlayerServerOperator(UUID playerUuid, Long serverId) {
         return dslContext.fetchExists(
@@ -210,5 +219,65 @@ public class MinecraftServerRepository {
                         .and(MINECRAFT_SERVER_PLAYER.MINECRAFT_SERVER_ID.eq(serverId))
                         .and(MINECRAFT_SERVER_PLAYER.IS_OPERATOR.eq(true))
         );
+    }
+
+    public void addFavorite(Long serverId, Long profileId) {
+        dslContext.insertInto(MINECRAFT_SERVER_FAVORITE)
+                .set(MINECRAFT_SERVER_FAVORITE.MINECRAFT_SERVER_ID, serverId)
+                .set(MINECRAFT_SERVER_FAVORITE.PROFILE_ID, profileId)
+                .onConflict(MINECRAFT_SERVER_FAVORITE.MINECRAFT_SERVER_ID, MINECRAFT_SERVER_FAVORITE.PROFILE_ID)
+                .doNothing()
+                .execute();
+    }
+
+    public void addFavorite(List<Long> serverIds, Long profileId) {
+        if (NullUtils.isNullOrEmpty(serverIds)) {
+            return;
+        }
+
+        var query = dslContext.insertInto(MINECRAFT_SERVER_FAVORITE)
+                .columns(MINECRAFT_SERVER_FAVORITE.MINECRAFT_SERVER_ID, MINECRAFT_SERVER_FAVORITE.PROFILE_ID)
+                .onDuplicateKeyIgnore();
+
+        var batch = dslContext.batch(query);
+
+        for (Long serverId : serverIds) {
+            batch.bind(serverId, profileId);
+        }
+
+        batch.execute();
+    }
+
+
+    public void removeFavorite(Long serverId, Long profileId) {
+        dslContext.deleteFrom(MINECRAFT_SERVER_FAVORITE)
+                .where(MINECRAFT_SERVER_FAVORITE.MINECRAFT_SERVER_ID.eq(serverId).and(MINECRAFT_SERVER_FAVORITE.PROFILE_ID.eq(profileId)))
+                .execute();
+    }
+
+    public void removeFavorite(Collection<Long> serverIds, Long profileId) {
+        if (NullUtils.isNullOrEmpty(serverIds)) {
+            return;
+        }
+
+        var query = dslContext.deleteFrom(MINECRAFT_SERVER_FAVORITE)
+                .where(MINECRAFT_SERVER_FAVORITE.MINECRAFT_SERVER_ID.eq(NullUtils.nullOf(Long.class)))
+                .and(MINECRAFT_SERVER_FAVORITE.PROFILE_ID.eq(profileId));
+
+        var batch = dslContext.batch(query);
+
+        for (var serverId : serverIds) {
+            batch.bind(serverId, profileId);
+        }
+
+        batch.execute();
+    }
+
+    public List<MinecraftServer> getFavorite(Long profileId) {
+        return dslContext.select()
+                .from(MINECRAFT_SERVER_FAVORITE)
+                .join(MINECRAFT_SERVER).on(MINECRAFT_SERVER_FAVORITE.MINECRAFT_SERVER_ID.eq(MINECRAFT_SERVER.ID))
+                .where(MINECRAFT_SERVER_FAVORITE.PROFILE_ID.eq(profileId))
+                .fetchInto(MinecraftServer.class);
     }
 }
