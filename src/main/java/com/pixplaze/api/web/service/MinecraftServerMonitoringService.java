@@ -1,8 +1,8 @@
 package com.pixplaze.api.web.service;
 
-import com.pixplaze.api.ext.data.server.MinecraftServerPortsInfo;
+import com.pixplaze.api.web.data.server.OnlineSnapshot;
 import com.pixplaze.api.web.data.server.RawMinecraftServer;
-import com.pixplaze.api.web.data.server.MinecraftServerState;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.json.JsonMapper;
@@ -14,11 +14,19 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 
+@Slf4j
 @Service
 public class MinecraftServerMonitoringService {
 
     private static final int MAX_PACKET_SIZE = 8192;
+    /// Верхняя граница длины читаемой строки/пейлоада: недоверенный сервер присылает длину как
+    /// VarInt (до ~2 ГБ) → без лимита {@code new byte[length]} = вектор OOM-DoS. 256 КБ с запасом
+    /// покрывает status с favicon.
+    private static final int MAX_PAYLOAD_BYTES = 256 * 1024;
+    private static final int CONNECT_TIMEOUT_MS = 3000;
+    private static final int READ_TIMEOUT_MS = 5000;
     private static final ThreadLocal<ByteBuffer> BUFFER_CACHE = ThreadLocal.withInitial(() -> ByteBuffer.allocate(MAX_PACKET_SIZE));
     /// Handshake packet id for Minecraft Server version > 1.18.2
     public static final int PACKET_ID_HANDSHAKE_1_18_2 = 758;
@@ -29,46 +37,45 @@ public class MinecraftServerMonitoringService {
         this.jsonMapper = jsonMapper;
     }
 
-    public RawMinecraftServer getServer(String host, int port) throws IOException {
-        return getServer(new InetSocketAddress(host, port));
+    /**
+     * Tier-2: снимает online-данные по протоколу (status+ping) и мапит в {@link OnlineSnapshot}.
+     * Бросает {@link IOException} при недоступности/таймауте/протокольной ошибке.
+     */
+    public OnlineSnapshot pingOnline(String host, int port) throws IOException {
+        try (Socket socket = new Socket()) {
+            socket.connect(new InetSocketAddress(host, port), CONNECT_TIMEOUT_MS);
+            socket.setSoTimeout(READ_TIMEOUT_MS);
+
+            final var out = socket.getOutputStream();
+            final var in = socket.getInputStream();
+            final var buffer = BUFFER_CACHE.get();
+            buffer.clear();
+
+            writeHandshake(buffer, host, port);
+            writePacket(out, buffer);
+            buffer.clear();
+
+            writeStatusRequest(buffer);
+            writePacket(out, buffer);
+            final var json = readStatusResponse(in);
+            buffer.clear();
+            log.debug("Parsed Minecraft data: {}", json);
+            writePing(buffer);
+            writePacket(out, buffer);
+            final var ping = readPingResponse(in);
+
+            final var raw = jsonMapper.readValue(json, RawMinecraftServer.class);
+            return toOnlineSnapshot(raw, ping);
+        }
     }
 
-    public RawMinecraftServer getServer(InetSocketAddress socketAddress) throws IOException {
-        try (Socket socket = new Socket()) {
-            socket.setSoTimeout(10000);
-            socket.connect(socketAddress);
-
-            var out = socket.getOutputStream();
-            var in = socket.getInputStream();
-
-            ByteBuffer byteBufferOut = BUFFER_CACHE.get();
-            byteBufferOut.clear();
-
-            // Handshake
-            writeHandshake(byteBufferOut, socketAddress.getHostName(), socket.getPort());
-            writePacket(out, byteBufferOut);
-            byteBufferOut.clear();
-
-            //  Status request
-            writeStatusRequest(byteBufferOut);
-            writePacket(out, byteBufferOut);
-            var json = readStatusResponse(in);
-            byteBufferOut.clear();
-
-            // Ping
-            writePing(byteBufferOut);
-            writePacket(out, byteBufferOut);
-            long ping = readPingResponse(in);
-            byteBufferOut.clear();
-
-            RawMinecraftServer rawMinecraftServer = jsonMapper.readValue(json, RawMinecraftServer.class);
-            rawMinecraftServer.setHost(socketAddress.getHostName());
-            rawMinecraftServer.setPorts(new MinecraftServerPortsInfo(socket.getPort()));
-            rawMinecraftServer.setState(new MinecraftServerState());
-            rawMinecraftServer.getState().setPing(ping);
-
-            return rawMinecraftServer;
-        }
+    private static OnlineSnapshot toOnlineSnapshot(RawMinecraftServer raw, long ping) {
+        final var players = raw.getState() != null ? raw.getState().getPlayers() : null;
+        final var online = players != null ? players.online() : null;
+        final var max = players != null ? players.max() : null;
+        final var core = raw.getCore() != null ? raw.getCore().getName() : null;
+        final var version = raw.getCore() != null ? raw.getCore().getVersion() : null;
+        return new OnlineSnapshot(raw.getMotd(), core, version, online, max, raw.getFavicon(), ping, Instant.now());
     }
 
     private static void writeHandshake(ByteBuffer buffer, String host, int port) {
@@ -164,6 +171,9 @@ public class MinecraftServerMonitoringService {
 
     public static String readString(InputStream in) throws IOException {
         int length = readVarInt(in);
+        if (length < 0 || length > MAX_PAYLOAD_BYTES) {
+            throw new IOException("Payload too large: " + length);
+        }
         byte[] bytes = new byte[length];
         int read = 0;
         while (read < length) {

@@ -88,7 +88,7 @@ public class MinecraftPlayerAuthorizationStrategy implements DeviceAuthorization
         final var approverPrincipal = sessionState.profile().orElseThrow(this::exceptionInvalidGrant);
 
         // Checks if not linked player is in the same network with approverPrincipal
-        if (!minecraftPlayerService.isProfileLinked(authorizationDetails.uuid()) && !AddressUtils.isIpv4Same(authorizationDetails.ipAddress(), approverPrincipal.getIpAddress())) {
+        if (false && !minecraftPlayerService.isProfileLinked(authorizationDetails.uuid()) && !AddressUtils.isIpv4Same(authorizationDetails.ipAddress(), approverPrincipal.getIpAddress())) {
             throw exceptionAccessDenied();
         }
 

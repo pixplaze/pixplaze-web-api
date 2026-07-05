@@ -17,6 +17,7 @@ import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.*;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -46,7 +47,7 @@ public class SecurityConfiguration {
         http.cors(this::configureCors);
         http.authorizeHttpRequests(this::configureHttpRequests);
         http.sessionManagement(this::configureSessionManagement);
-        http.addFilterBefore(new JwtAuthenticationFilter(clientPrincipalReader), UsernamePasswordAuthenticationFilter.class);
+        http.addFilterBefore(new JwtAuthenticationFilter(clientPrincipalReader, exceptionHandlerService), UsernamePasswordAuthenticationFilter.class);
         http.exceptionHandling(this::configureExceptionHandler);
         return http.build();
     }
@@ -74,6 +75,11 @@ public class SecurityConfiguration {
         auth.requestMatchers("/error/**").permitAll();
         auth.requestMatchers("/swagger-ui/**", "/swagger-resources/*", "/v3/api-docs/**").permitAll();
         auth.requestMatchers("/endpoint", "/admin/**").hasRole("ADMIN");
+        // Публичный листинг серверов. Порядок важен: избранное (личное) защищаем ДО общего /servers/*,
+        // чтобы GET /servers/* не сделал GET /servers/favorite анонимным.
+        auth.requestMatchers(HttpMethod.GET, "/servers/favorite").authenticated();
+        auth.requestMatchers(HttpMethod.GET, "/servers", "/servers/*").permitAll();
+        auth.requestMatchers(HttpMethod.POST, "/servers/state").permitAll();
         auth.anyRequest().authenticated();
     }
 

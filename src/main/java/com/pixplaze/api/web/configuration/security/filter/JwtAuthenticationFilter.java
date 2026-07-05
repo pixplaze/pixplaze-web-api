@@ -1,5 +1,6 @@
 package com.pixplaze.api.web.configuration.security.filter;
 
+import com.pixplaze.api.web.service.ExceptionHandlerService;
 import com.pixplaze.api.web.service.auth.ClientPrincipalReader;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.MalformedJwtException;
@@ -11,6 +12,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.jspecify.annotations.NonNull;
 import org.springframework.http.HttpStatus;
@@ -21,6 +23,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
@@ -28,6 +31,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     public static final String HEADER_NAME = "Authorization";
 
     private final ClientPrincipalReader clientPrincipalReader;
+    private final ExceptionHandlerService exceptionHandlerService;
 
     @Override
     protected void doFilterInternal(
@@ -54,7 +58,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
 
         } catch (SignatureException | DecodingException | MalformedJwtException | UnsupportedJwtException | ExpiredJwtException e) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Token is invalid or could not be trusted.", e.getCause());
+            // Невалидный/протухший токен — нормальный клиентский 401, а не серверная ошибка.
+            // Тихий WARN с атрибуцией (без стектрейса) и 401 отдаём сами, НЕ пробрасывая исключение
+            // в сервлет — иначе DispatcherServlet залогирует полный стек ERROR-ом (шум + вектор log-DoS).
+            log.warn("Rejected request with invalid token: {} {} from {} — {}: {}",
+                    request.getMethod(), request.getRequestURI(), resolveClientIpAddress(request),
+                    e.getClass().getSimpleName(), e.getMessage());
+            response.setContentType("application/json;charset=UTF-8");
+            exceptionHandlerService.sendErrorResponseInfo(request, response,
+                    new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Token is invalid or could not be trusted.", e));
         }
     }
 

@@ -41,7 +41,7 @@ public class MinecraftPlayerService {
     }
 
     /// Связанные с профилем игроки (uuid/имя/голова скина/флаг оператора) для веб-приложения.
-    public List<MinecraftPlayerInfo> findLinkedByProfileId(Long profileId) {
+    public List<MinecraftPlayer> findLinkedByProfileId(Long profileId) {
         return minecraftPlayerRepository.findLinkedByProfileId(profileId);
     }
 

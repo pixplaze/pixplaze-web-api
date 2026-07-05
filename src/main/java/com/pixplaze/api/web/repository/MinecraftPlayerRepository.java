@@ -125,7 +125,7 @@ public class MinecraftPlayerRepository {
     /// Связанные с профилем игроки для веб-приложения: uuid, имя, голова скина и флаг оператора
     /// (true, если игрок — оператор хотя бы на одном сервере). Остальные поля {@link MinecraftPlayerInfo}
     /// не заполняются (в web не нужны). Источник ролей MINECRAFT_PLAYER/MINECRAFT_OPERATOR.
-    public List<MinecraftPlayerInfo> findLinkedByProfileId(Long profileId) {
+    public List<MinecraftPlayer> findLinkedByProfileId(Long profileId) {
         final var isOperator = DSL.field(DSL.exists(
                 dslContext.selectOne()
                         .from(MINECRAFT_SERVER_PLAYER)
@@ -141,13 +141,7 @@ public class MinecraftPlayerRepository {
                 .from(MINECRAFT_PLAYER)
                 .join(MINECRAFT_PLAYER_PROFILE).on(MINECRAFT_PLAYER_PROFILE.MINECRAFT_PLAYER_UUID.eq(MINECRAFT_PLAYER.UUID))
                 .where(MINECRAFT_PLAYER_PROFILE.PROFILE_ID.eq(profileId))
-                .fetch(r -> new MinecraftPlayerInfo(
-                        r.get(MINECRAFT_PLAYER.UUID),
-                        r.get(MINECRAFT_PLAYER.USERNAME),
-                        null, null, null, null,
-                        r.get("is_operator", Boolean.class),
-                        null, null,
-                        r.get(MINECRAFT_PLAYER.SKIN_HEAD)));
+                .fetchInto(MinecraftPlayer.class);
     }
 
     /// Хосты серверов, на которых состоят связанные с профилем игроки (любое членство, не только

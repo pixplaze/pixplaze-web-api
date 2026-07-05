@@ -18,6 +18,7 @@ public interface MinecraftServerMapper {
     @Mapping(target = "isLicense", source = "license")
     @Mapping(target = "createdAt", ignore = true)
     MinecraftServer toEntity(MinecraftServerInfo minecraftServerInfo);
+    MinecraftServerInfo toInfo(MinecraftServer minecraftServer);
 
     default Map<String, Object> toAuthorizationDetails(MinecraftServerAuthorizationDetails authorizationDetails) {
         final var details = new LinkedHashMap<String, Object>();

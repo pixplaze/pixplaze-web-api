@@ -3,8 +3,12 @@ package com.pixplaze.api.web.service;
 import com.pixplaze.api.ext.data.Authority;
 import com.pixplaze.api.ext.data.player.MinecraftPlayerInfo;
 import com.pixplaze.api.web.configuration.security.SecurityConfiguration;
+import com.pixplaze.api.web.data.db.tables.pojos.MinecraftPlayer;
 import com.pixplaze.api.web.data.db.tables.pojos.Profile;
+import com.pixplaze.api.web.data.dto.ProfileInfo;
 import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
+import com.pixplaze.api.web.mapper.MinecraftPlayerMapper;
+import com.pixplaze.api.web.mapper.MinecraftServerMapper;
 import com.pixplaze.api.web.mapper.ProfileMapper;
 import com.pixplaze.api.web.repository.ProfileRepository;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +29,8 @@ public class ProfileService {
     private final ProfileMapper profileMapper;
     private final MinecraftPlayerService minecraftPlayerService;
     private final MinecraftServerService minecraftServerService;
+    private final MinecraftPlayerMapper minecraftPlayerMapper;
+    private final MinecraftServerMapper minecraftServerMapper;
 
     @Value("${app.url.api.gateway}")
     private String apiGateway;
@@ -60,6 +66,20 @@ public class ProfileService {
                 .orElseThrow(() -> new UsernameNotFoundException("Профиль не найден: " + id));
     }
 
+    public ProfileInfo getProfileInfo(Long profileId) {
+        final var profile = getById(profileId).setPassword(null);
+        final var profilePlayers = minecraftPlayerService.findLinkedByProfileId(profileId)
+                .stream()
+                .map(minecraftPlayerMapper::toInfo)
+                .toList();
+        final var profileFavoriteServers = minecraftServerService.getFavorite(profileId)
+                .stream()
+                .map(minecraftServerMapper::toInfo)
+                .toList();
+
+        return new ProfileInfo(profile, profilePlayers, profileFavoriteServers);
+    }
+
     /**
      * Получение пользователя по имени пользователя
      * <p>
@@ -77,7 +97,10 @@ public class ProfileService {
 
     public ApplicationClientPrincipal toApplicationClientPrincipal(Profile profile) {
         final var principal = profileMapper.toApplicationClientPrincipal(profile);
-        principal.setPlayers(loadLinkedPlayers(principal.getId()));
+        final var players = loadLinkedPlayers(principal.getId()).stream()
+                .map(minecraftPlayerMapper::toInfo)
+                .toList();
+        principal.setPlayers(players);
         applyAuthority(principal);
         return principal;
     }
@@ -93,7 +116,7 @@ public class ProfileService {
     /// Связанные MC-игроки профиля (uuid/имя/голова скина/флаг оператора) — источник ролей
     /// MINECRAFT_PLAYER/MINECRAFT_OPERATOR и данных об игроках для веб-приложения. У ещё не
     /// созданного профиля ({@code id == null}, путь регистрации) связей нет — пустой список.
-    private List<MinecraftPlayerInfo> loadLinkedPlayers(Long profileId) {
+    private List<MinecraftPlayer> loadLinkedPlayers(Long profileId) {
         if (profileId == null) {
             return List.of();
         }

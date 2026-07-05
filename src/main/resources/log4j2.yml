@@ -61,6 +61,13 @@ Configuration:
 
   Loggers:
 
+    # Прикладной пакет — DEBUG (диагностика); фреймворки остаются на Root=INFO, чтобы TRACE
+    # не лил тела запросов/ответов и не раздувал лог (в т.ч. как вектор log-DoS).
+    Logger:
+      - name: com.pixplaze
+        level: debug
+        additivity: true
+
     Root:
       level: info
       AppenderRef:

@@ -1,105 +1,71 @@
 package com.pixplaze.api.web.service;
 
-import com.pixplaze.api.ext.data.server.MinecraftServerCoreInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerStateInfo;
 import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServer;
+import com.pixplaze.api.web.data.dto.MinecraftServerHeartbeatRequest;
 import com.pixplaze.api.web.data.server.MinecraftServerStatus;
-import com.pixplaze.api.web.data.server.RawMinecraftServer;
-import com.pixplaze.api.web.exception.http.NotFoundException;
+import com.pixplaze.api.web.data.server.PluginSnapshot;
 import com.pixplaze.api.web.repository.MinecraftPlayerRepository;
 import com.pixplaze.api.web.repository.MinecraftServerRepository;
-import com.pixplaze.api.web.service.api.server.MinecraftServerApiService;
-import jakarta.annotation.PostConstruct;
-import lombok.SneakyThrows;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.pixplaze.api.web.service.server.ServerListingAssembler;
+import com.pixplaze.api.web.service.server.ServerSnapshotStore;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.*;
 
 @Service
+@RequiredArgsConstructor
 public class MinecraftServerService {
     private final MinecraftServerRepository minecraftServerRepository;
-    private final Map<MinecraftServerInfo, MinecraftServerApiService> minecraftServerApiServiceMap;
-    private final MinecraftServerPollingService minecraftServerPollingService;
     private final MinecraftPlayerRepository minecraftPlayerRepository;
+    private final ServerSnapshotStore serverSnapshotStore;
+    private final ServerListingAssembler serverListingAssembler;
 
-    @Autowired
-    public MinecraftServerService(MinecraftServerRepository minecraftServerRepository, MinecraftServerPollingService minecraftServerPollingService, MinecraftPlayerRepository minecraftPlayerRepository) {
-        this.minecraftServerRepository = minecraftServerRepository;
-        this.minecraftServerPollingService = minecraftServerPollingService;
-        this.minecraftServerApiServiceMap = new HashMap<>();
-        this.minecraftPlayerRepository = minecraftPlayerRepository;
-    }
-
-    @PostConstruct
-    public void init() {
-// Вешает приложение при запуске
-//        final var inetSocketAddressList = minecraftServerRepository.getPixplazeServerList().stream()
-//                .map(ms -> new InetSocketAddress(ms.host(), ms.ports().java()))
-//                .toList();
-//        minecraftServerPollingService.push(inetSocketAddressList);
-    }
-
-    public List<MinecraftServerInfo> getPixplazeServerList(boolean fetchThumbnail) {
-        final var pixplazeServerList = minecraftServerRepository.getPixplazeServerList();
-
-        return pixplazeServerList.parallelStream()
-                .map(s -> fillWithMinecraftServerInfo(s, fetchThumbnail))
-                .filter(Objects::nonNull)
+    /// Страница листинга из материализованного снапшота (без сетевого I/O; тир зависит от online/plugin).
+    public List<MinecraftServerInfo> listServers(int limit, int offset) {
+        final var all = serverSnapshotStore.findAll();
+        final var from = Math.max(0, offset);
+        if (from >= all.size()) {
+            return List.of();
+        }
+        final var size = Math.min(Math.max(limit, 1), 100);
+        final var to = Math.min(from + size, all.size());
+        return all.subList(from, to).stream()
+                .map(serverListingAssembler::toServerInfo)
                 .toList();
     }
 
-    /// Retrieves minecraft server info
-    public MinecraftServerInfo getServerInfo(Integer id, boolean fetchThumbnail) {
-        final var pixplazeServerInfo = minecraftServerRepository.getPixplazeServerInfoById(id);
-
-        Optional.ofNullable(pixplazeServerInfo).orElseThrow(NotFoundException::new);
-
-        return fillWithMinecraftServerInfo(pixplazeServerInfo, fetchThumbnail);
+    /// Один сервер по id из снапшота ({@code null} → 404 на контроллере).
+    public MinecraftServerInfo getServerInfo(Long id) {
+        return serverSnapshotStore.find(id)
+                .map(serverListingAssembler::toServerInfo)
+                .orElse(null);
     }
 
-    @SneakyThrows
-    private MinecraftServerInfo fillWithMinecraftServerInfo(MinecraftServerInfo pixplazeServerInfo, boolean fetchThumbnail) {
-//        try {
-//            final var serverApi = getServerApi(pixplazeServerInfo);
-//            return serverApi.getServerInfo(fetchThumbnail);
-//        } catch (ResourceAccessException | HttpServerErrorException.InternalServerError e) {
-            return requestMinecraftServer(pixplazeServerInfo.host());
-//        }
-    }
-
-    public MinecraftServerInfo requestMinecraftServer(String hostname) {
-        RawMinecraftServer rawMinecraftServer = minecraftServerPollingService.get(hostname);
-        if (rawMinecraftServer == null) {
-            return null;
+    /// Только online-обновляемая часть для набора серверов (веб-апп refresh, POST /servers/state).
+    public Map<Long, MinecraftServerStateInfo> getServerStates(Collection<Long> ids) {
+        final var result = new LinkedHashMap<Long, MinecraftServerStateInfo>();
+        for (final var id : ids) {
+            serverSnapshotStore.find(id).ifPresent(listing -> result.put(id, serverListingAssembler.toStateInfo(listing)));
         }
-        final var minecraftServerCoreInfo = new MinecraftServerCoreInfo(
-                rawMinecraftServer.getCore().getName(),
-                rawMinecraftServer.getCore().getVersion()
-        );
-        final var minecraftServerStateInfo = new MinecraftServerStateInfo(
-                rawMinecraftServer.getState().getTps(),
-                rawMinecraftServer.getState().getPing(),
-                rawMinecraftServer.getState().getUptime(),
-                null,
-                rawMinecraftServer.getState().getState(),
-                rawMinecraftServer.getState().getPlayers()
-        );
+        return result;
+    }
 
-        return new MinecraftServerInfo(
-                null,
-                rawMinecraftServer.getHost(),
-                rawMinecraftServer.getMotd(),
-                rawMinecraftServer.getLicense(),
-                rawMinecraftServer.getFavicon(),
-                rawMinecraftServer.getMotd(),
-                rawMinecraftServer.getPorts(),
-                minecraftServerCoreInfo,
-                minecraftServerStateInfo,
-                null,
-                null
+    /// Tier-3 push: сервер-плагин прислал heartbeat → кладём в снапшот (протухание — по TTL в ассемблере).
+    /// No-op, если сервер ещё не в снапшоте (появится после ближайшего base-sync).
+    public void handleHeartbeat(Long serverId, MinecraftServerHeartbeatRequest request) {
+        final var snapshot = new PluginSnapshot(
+                request.tps(),
+                request.uptimeMillis(),
+                request.difficulty(),
+                request.plugins(),
+                request.metadata(),
+                Instant.now()
         );
+        serverSnapshotStore.putPlugin(serverId, snapshot);
     }
 
     public MinecraftServer createIfNotExist(
@@ -114,6 +80,16 @@ public class MinecraftServerService {
 
     public boolean isPlayerProfileServerOperator(Long profileId, Long serverId) {
         return minecraftServerRepository.isPlayerProfileServerOperator(profileId, serverId);
+    }
+
+    /// Все залистингованные серверы (база из БД) — источник правды для листинга/рефрешера.
+    public List<MinecraftServer> findAllListed() {
+        return minecraftServerRepository.findAllListed();
+    }
+
+    /// Адреса для Tier-2 пинга (host + Java-порт) — для рефрешера.
+    public List<com.pixplaze.api.web.data.server.ServerPingTarget> findPingTargets() {
+        return minecraftServerRepository.findPingTargets();
     }
 
     public Optional<MinecraftServer> findByHost(String host) {
@@ -157,19 +133,6 @@ public class MinecraftServerService {
     /// Фиксирует членство вошедшего игрока на сервере (idempotent upsert; обновляет is_operator).
     public void linkPlayer(Long serverId, UUID playerUuid, boolean isOperator) {
         minecraftServerRepository.upsertPlayer(serverId, playerUuid, isOperator);
-    }
-
-    private MinecraftServerApiService getServerApi(MinecraftServerInfo pixplazeServerInfo) {
-        var serverApi = minecraftServerApiServiceMap.get(Objects.requireNonNull(pixplazeServerInfo, "Pixplaze server must not be null!"));
-
-        if (Objects.nonNull(serverApi)) {
-            return serverApi;
-        }
-
-        serverApi = new MinecraftServerApiService(pixplazeServerInfo);
-        minecraftServerApiServiceMap.put(pixplazeServerInfo, serverApi);
-
-        return serverApi;
     }
 
     public void addFavorite(Long serverId, Long profileId) {

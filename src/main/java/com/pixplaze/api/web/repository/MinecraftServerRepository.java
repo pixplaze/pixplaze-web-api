@@ -1,12 +1,13 @@
 package com.pixplaze.api.web.repository;
 
 import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
-import com.pixplaze.api.ext.data.server.MinecraftServerPortsInfo;
 import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServer;
 import com.pixplaze.api.web.data.server.MinecraftServerStatus;
+import com.pixplaze.api.web.data.server.ServerPingTarget;
 import com.pixplaze.api.web.util.NullUtils;
 import lombok.AllArgsConstructor;
 import org.jooq.DSLContext;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,45 +22,32 @@ public class MinecraftServerRepository {
 
     private final DSLContext dslContext;
 
-    private static final List<MinecraftServerInfo> PIXPLAZE_SERVER_INFO_LIST = List.of(
-            new MinecraftServerInfo(
-                    "localhost",
-                    new MinecraftServerPortsInfo(25565)
-            ),
-            new MinecraftServerInfo(
-                    "185.23.80.106",
-                    new MinecraftServerPortsInfo(50010, 50011, 50012)
-            ),
-            new MinecraftServerInfo(
-                    "mc.pixplaze.net",
-                    new MinecraftServerPortsInfo(50010, 50011, 50012)
-            ),
-            new MinecraftServerInfo(
-                    "mc.hypixel.net",
-                    new MinecraftServerPortsInfo(25565)
-            ),
-            new MinecraftServerInfo(
-                    "mc.epserv.ru",
-                    new MinecraftServerPortsInfo(25565)
-            )
-    );
-
-    public List<MinecraftServerInfo> getPixplazeServerList() {
-        return PIXPLAZE_SERVER_INFO_LIST;
-    }
-
-    public MinecraftServerInfo getPixplazeServerInfoById(int id) {
-        try {
-            return PIXPLAZE_SERVER_INFO_LIST.get(id);
-        } catch (IndexOutOfBoundsException e) {
-            return null;
-        }
-    }
-
     public List<MinecraftServerInfo> getMinecraftServerList() {
         return dslContext.select()
                 .from(MINECRAFT_SERVER)
                 .fetchInto(MinecraftServerInfo.class);
+    }
+
+    /// Все залистингованные серверы (авторитетная база из БД) — источник правды для листинга.
+    public List<MinecraftServer> findAllListed() {
+        return dslContext.selectFrom(MINECRAFT_SERVER)
+                .fetchInto(MinecraftServer.class);
+    }
+
+    /// Адреса для Tier-2 пинга: по строке на сервер (host + Java-порт; при отсутствии порта — 25565).
+    /// {@code min(java_port)} + group by гарантирует одну строку на сервер даже при нескольких портах.
+    public List<ServerPingTarget> findPingTargets() {
+        return dslContext.select(
+                        MINECRAFT_SERVER.ID,
+                        MINECRAFT_SERVER.HOST,
+                        DSL.coalesce(DSL.min(MINECRAFT_SERVER_PORT.JAVA_PORT), DSL.inline(25565)))
+                .from(MINECRAFT_SERVER)
+                .leftJoin(MINECRAFT_SERVER_PORT).on(MINECRAFT_SERVER_PORT.MINECRAFT_SERVER_ID.eq(MINECRAFT_SERVER.ID))
+                .groupBy(MINECRAFT_SERVER.ID, MINECRAFT_SERVER.HOST)
+                .fetch(record -> new ServerPingTarget(
+                        record.get(MINECRAFT_SERVER.ID),
+                        record.get(MINECRAFT_SERVER.HOST),
+                        record.get(2, Integer.class)));
     }
 
     public Optional<MinecraftServer> findByHost(String host) {
