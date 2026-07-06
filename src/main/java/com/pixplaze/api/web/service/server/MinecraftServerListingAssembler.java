@@ -4,7 +4,7 @@ import com.pixplaze.api.ext.data.player.MinecraftPlayerListInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerCoreInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerStateInfo;
-import com.pixplaze.api.web.data.server.PluginSnapshot;
+import com.pixplaze.api.web.data.server.MinecraftServerSnapshot;
 import com.pixplaze.api.web.data.server.MinecraftServerListingInfo;
 import org.springframework.stereotype.Component;
 
@@ -22,7 +22,7 @@ import java.time.Instant;
  * Чистая функция над снапшотом — без сетевого I/O, дёшево на request-пути.
  */
 @Component
-public class ServerListingAssembler {
+public class MinecraftServerListingAssembler {
 
     /// Плагин молчит дольше этого — Tier-3 считаем протухшим и скрываем (push с TTL).
     private static final Duration PLUGIN_TTL = Duration.ofMinutes(2);
@@ -42,6 +42,10 @@ public class ServerListingAssembler {
         final var plugins = plugin != null ? plugin.plugins() : null;
         final var metadata = plugin != null ? plugin.metadata() : null;
 
+        final var rating = listing.rating();
+        final var ratingAverage = rating != null && rating.count() > 0 ? rating.average() : null;
+        final var ratingCount = rating != null ? rating.count() : 0L;
+
         return new MinecraftServerInfo(
                 id,
                 name,
@@ -54,7 +58,9 @@ public class ServerListingAssembler {
                 core,
                 toStateInfo(listing),
                 plugins,
-                metadata
+                metadata,
+                ratingAverage,
+                ratingCount
         );
     }
 
@@ -81,7 +87,7 @@ public class ServerListingAssembler {
     }
 
     /// Возвращает plugin-снимок, только если он свежий (иначе {@code null} → Tier-3 скрыт).
-    private PluginSnapshot freshPlugin(MinecraftServerListingInfo listing) {
+    private MinecraftServerSnapshot.Plugin freshPlugin(MinecraftServerListingInfo listing) {
         final var plugin = listing.plugin();
         if (plugin == null || plugin.fetchedAt() == null) {
             return null;

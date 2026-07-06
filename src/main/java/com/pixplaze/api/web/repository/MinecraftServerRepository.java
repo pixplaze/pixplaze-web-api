@@ -4,9 +4,11 @@ import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
 import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServer;
 import com.pixplaze.api.web.data.server.MinecraftServerStatus;
 import com.pixplaze.api.web.data.server.ServerPingTarget;
+import com.pixplaze.api.web.data.server.ServerRatingAggregate;
 import com.pixplaze.api.web.util.NullUtils;
 import lombok.AllArgsConstructor;
 import org.jooq.DSLContext;
+import org.jooq.Record3;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -267,5 +269,48 @@ public class MinecraftServerRepository {
                 .join(MINECRAFT_SERVER).on(MINECRAFT_SERVER_FAVORITE.MINECRAFT_SERVER_ID.eq(MINECRAFT_SERVER.ID))
                 .where(MINECRAFT_SERVER_FAVORITE.PROFILE_ID.eq(profileId))
                 .fetchInto(MinecraftServer.class);
+    }
+
+    /// Голос игрока за сервер: UPSERT по паре (сервер, игрок) — повторный вызов переголосовывает
+    /// (обновляет оценку и {@code updated_at}), не создавая второй строки → один голос на игрока.
+    public void upsertRating(Long serverId, UUID playerUuid, int rating) {
+        dslContext.insertInto(MINECRAFT_SERVER_RATING)
+                .set(MINECRAFT_SERVER_RATING.MINECRAFT_SERVER_ID, serverId)
+                .set(MINECRAFT_SERVER_RATING.MINECRAFT_PLAYER_UUID, playerUuid)
+                .set(MINECRAFT_SERVER_RATING.RATING, (short) rating)
+                .onConflict(MINECRAFT_SERVER_RATING.MINECRAFT_SERVER_ID, MINECRAFT_SERVER_RATING.MINECRAFT_PLAYER_UUID)
+                .doUpdate()
+                .set(MINECRAFT_SERVER_RATING.RATING, (short) rating)
+                .set(MINECRAFT_SERVER_RATING.UPDATED_AT, OffsetDateTime.now())
+                .execute();
+    }
+
+    /// Агрегат рейтинга одного сервера (AVG + COUNT). Пустой агрегат, если голосов ещё нет.
+    public ServerRatingAggregate ratingAggregate(Long serverId) {
+        final var record = dslContext.select(DSL.avg(MINECRAFT_SERVER_RATING.RATING), DSL.count())
+                .from(MINECRAFT_SERVER_RATING)
+                .where(MINECRAFT_SERVER_RATING.MINECRAFT_SERVER_ID.eq(serverId))
+                .fetchOne();
+        if (record == null || record.value2() == 0) {
+            return ServerRatingAggregate.EMPTY;
+        }
+        final var avg = record.value1();
+        return new ServerRatingAggregate(avg == null ? 0.0 : avg.doubleValue(), record.value2().longValue());
+    }
+
+    /// Агрегаты рейтинга по всем серверам одним запросом (для base-sync листинга).
+    /// Серверы без голосов в карту не попадают — вызывающий подставляет {@link ServerRatingAggregate#EMPTY}.
+    public Map<Long, ServerRatingAggregate> ratingAggregatesByServer() {
+        return dslContext.select(
+                        MINECRAFT_SERVER_RATING.MINECRAFT_SERVER_ID,
+                        DSL.avg(MINECRAFT_SERVER_RATING.RATING),
+                        DSL.count())
+                .from(MINECRAFT_SERVER_RATING)
+                .groupBy(MINECRAFT_SERVER_RATING.MINECRAFT_SERVER_ID)
+                .fetchMap(
+                        Record3::value1,
+                        record -> new ServerRatingAggregate(
+                                record.value2() == null ? 0.0 : record.value2().doubleValue(),
+                                record.value3().longValue()));
     }
 }

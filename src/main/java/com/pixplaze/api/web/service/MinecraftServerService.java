@@ -4,14 +4,19 @@ import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerStateInfo;
 import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServer;
 import com.pixplaze.api.web.data.dto.MinecraftServerHeartbeatRequest;
+import com.pixplaze.api.web.data.server.MinecraftServerSnapshot;
 import com.pixplaze.api.web.data.server.MinecraftServerStatus;
-import com.pixplaze.api.web.data.server.PluginSnapshot;
+import com.pixplaze.api.web.data.server.ServerRatingAggregate;
+import com.pixplaze.api.web.exception.http.BadRequestException;
+import com.pixplaze.api.web.exception.http.NotFoundException;
 import com.pixplaze.api.web.repository.MinecraftPlayerRepository;
 import com.pixplaze.api.web.repository.MinecraftServerRepository;
-import com.pixplaze.api.web.service.server.ServerListingAssembler;
-import com.pixplaze.api.web.service.server.ServerSnapshotStore;
+import com.pixplaze.api.web.service.server.MinecraftServerListingAssembler;
+import com.pixplaze.api.web.service.server.MinecraftServerSnapshotStore;
+import com.pixplaze.api.web.util.PagingUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.*;
@@ -21,27 +26,39 @@ import java.util.*;
 public class MinecraftServerService {
     private final MinecraftServerRepository minecraftServerRepository;
     private final MinecraftPlayerRepository minecraftPlayerRepository;
-    private final ServerSnapshotStore serverSnapshotStore;
-    private final ServerListingAssembler serverListingAssembler;
+    private final MinecraftServerSnapshotStore minecraftServerSnapshotStore;
+    private final MinecraftServerListingAssembler minecraftServerListingAssembler;
 
     /// Страница листинга из материализованного снапшота (без сетевого I/O; тир зависит от online/plugin).
-    public List<MinecraftServerInfo> listServers(int limit, int offset) {
-        final var all = serverSnapshotStore.findAll();
-        final var from = Math.max(0, offset);
-        if (from >= all.size()) {
-            return List.of();
+    /// Порядок операций: фильтр по {@code search} → пагинация, чтобы offset/limit считались от совпадений.
+    public List<MinecraftServerInfo> listServers(String search, int limit, int offset) {
+        final var paging = PagingUtils.of(limit, offset);
+        var stream = minecraftServerSnapshotStore.findAll().stream()
+                .map(minecraftServerListingAssembler::toServerInfo);
+
+        if (search != null && !search.isBlank()) {
+            final var needle = search.toLowerCase();
+            stream = stream.filter(info -> matches(info, needle));
         }
-        final var size = Math.min(Math.max(limit, 1), 100);
-        final var to = Math.min(from + size, all.size());
-        return all.subList(from, to).stream()
-                .map(serverListingAssembler::toServerInfo)
-                .toList();
+
+        return stream.skip(paging.from()).limit(paging.size()).toList();
+    }
+
+    /// Совпадение по host/name/description (регистронезависимо; null-поля пропускаются).
+    private static boolean matches(MinecraftServerInfo info, String needle) {
+        return contains(info.host(), needle)
+                || contains(info.name(), needle)
+                || contains(info.description(), needle);
+    }
+
+    private static boolean contains(String field, String needle) {
+        return field != null && field.toLowerCase().contains(needle);
     }
 
     /// Один сервер по id из снапшота ({@code null} → 404 на контроллере).
     public MinecraftServerInfo getServerInfo(Long id) {
-        return serverSnapshotStore.find(id)
-                .map(serverListingAssembler::toServerInfo)
+        return minecraftServerSnapshotStore.find(id)
+                .map(minecraftServerListingAssembler::toServerInfo)
                 .orElse(null);
     }
 
@@ -49,7 +66,7 @@ public class MinecraftServerService {
     public Map<Long, MinecraftServerStateInfo> getServerStates(Collection<Long> ids) {
         final var result = new LinkedHashMap<Long, MinecraftServerStateInfo>();
         for (final var id : ids) {
-            serverSnapshotStore.find(id).ifPresent(listing -> result.put(id, serverListingAssembler.toStateInfo(listing)));
+            minecraftServerSnapshotStore.find(id).ifPresent(listing -> result.put(id, minecraftServerListingAssembler.toStateInfo(listing)));
         }
         return result;
     }
@@ -57,7 +74,7 @@ public class MinecraftServerService {
     /// Tier-3 push: сервер-плагин прислал heartbeat → кладём в снапшот (протухание — по TTL в ассемблере).
     /// No-op, если сервер ещё не в снапшоте (появится после ближайшего base-sync).
     public void handleHeartbeat(Long serverId, MinecraftServerHeartbeatRequest request) {
-        final var snapshot = new PluginSnapshot(
+        final var snapshot = new MinecraftServerSnapshot.Plugin(
                 request.tps(),
                 request.uptimeMillis(),
                 request.difficulty(),
@@ -65,7 +82,27 @@ public class MinecraftServerService {
                 request.metadata(),
                 Instant.now()
         );
-        serverSnapshotStore.putPlugin(serverId, snapshot);
+        minecraftServerSnapshotStore.putPlugin(serverId, snapshot);
+    }
+
+    /// Голос игрока за сервер (1..5). UPSERT по паре (сервер, игрок) → один голос на игрока,
+    /// повторный вызов переголосовывает. Пересчитывает агрегат и кладёт его в снапшот, чтобы
+    /// новое среднее подхватилось ближайшим publish-тиком (~5с), не дожидаясь base-sync (~5мин).
+    @Transactional
+    public void rate(Long serverId, UUID playerUuid, int rating) {
+        if (rating < 1 || rating > 5) {
+            throw new BadRequestException("Rating must be between 1 and 5");
+        }
+        if (minecraftServerRepository.findById(serverId).isEmpty()) {
+            throw new NotFoundException("Server '%d' not found".formatted(serverId));
+        }
+        minecraftServerRepository.upsertRating(serverId, playerUuid, rating);
+        minecraftServerSnapshotStore.putRating(serverId, minecraftServerRepository.ratingAggregate(serverId));
+    }
+
+    /// Агрегаты рейтинга по всем серверам (для base-sync листинга).
+    public Map<Long, ServerRatingAggregate> ratingAggregatesByServer() {
+        return minecraftServerRepository.ratingAggregatesByServer();
     }
 
     public MinecraftServer createIfNotExist(

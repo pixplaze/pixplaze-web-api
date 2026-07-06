@@ -7,6 +7,7 @@ import com.pixplaze.api.web.data.dto.MinecraftServerBidRequest;
 import com.pixplaze.api.web.data.dto.MinecraftServerBidResponse;
 import com.pixplaze.api.web.data.dto.MinecraftServerHeartbeatRequest;
 import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
+import com.pixplaze.api.web.data.user.MinecraftPlayerPrincipal;
 import com.pixplaze.api.web.data.user.MinecraftServerPrincipal;
 import com.pixplaze.api.web.service.MinecraftServerBidService;
 import com.pixplaze.api.web.service.MinecraftServerService;
@@ -40,10 +41,11 @@ public class MinecraftServerController {
     @PreAuthorize("permitAll()")
     @GetMapping
     public List<MinecraftServerInfo> getServers(
+            @RequestParam(required = false) String search,
             @RequestParam(value = "limit", defaultValue = "50") int limit,
             @RequestParam(value = "offset", defaultValue = "0") int offset
     ) {
-        return minecraftServerService.listServers(limit, offset);
+        return minecraftServerService.listServers(search, limit, offset);
     }
 
     @PreAuthorize("permitAll()")
@@ -71,6 +73,18 @@ public class MinecraftServerController {
             @RequestBody MinecraftServerHeartbeatRequest request
     ) {
         minecraftServerService.handleHeartbeat(principal.getServerId(), request);
+    }
+
+    /// Игрок оценивает сервер (1..5). Identity голосующего — из токена, не из тела: один голос
+    /// на игрока (повторный вызов переголосовывает). Рейтинг персистится в БД.
+    @PreAuthorize("hasRole('MINECRAFT_PLAYER')")
+    @PostMapping("/rate/{serverId}")
+    public void rate(
+            @AuthenticationPrincipal MinecraftPlayerPrincipal principal,
+            @PathVariable Long serverId,
+            @RequestParam int rating
+    ) {
+        minecraftServerService.rate(serverId, principal.getUuid(), rating);
     }
 
     /// Заявка владельца на регистрацию сервера: создаёт заявку и возвращает код для конфига сервера.

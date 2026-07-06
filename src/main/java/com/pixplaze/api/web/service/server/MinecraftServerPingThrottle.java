@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Значения пока константы — при необходимости выносятся в конфиг.
  */
 @Component
-public class ServerPingThrottle {
+public class MinecraftServerPingThrottle {
 
     private static final Duration BASE_INTERVAL = Duration.ofMinutes(5);
     private static final Duration MAX_BACKOFF = Duration.ofMinutes(30);

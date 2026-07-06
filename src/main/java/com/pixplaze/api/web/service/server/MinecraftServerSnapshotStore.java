@@ -1,8 +1,8 @@
 package com.pixplaze.api.web.service.server;
 
-import com.pixplaze.api.web.data.server.OnlineSnapshot;
-import com.pixplaze.api.web.data.server.PluginSnapshot;
+import com.pixplaze.api.web.data.server.MinecraftServerSnapshot;
 import com.pixplaze.api.web.data.server.MinecraftServerListingInfo;
+import com.pixplaze.api.web.data.server.ServerRatingAggregate;
 
 import java.util.Collection;
 import java.util.List;
@@ -20,7 +20,7 @@ import java.util.Optional;
  * {@link #putOnline}/{@link #putPlugin} обновляют тиры точечно, {@link #publish} атомарно
  * публикует новый неизменяемый вид для читателей (раз в цикл, а не на каждую запись).
  */
-public interface ServerSnapshotStore {
+public interface MinecraftServerSnapshotStore {
 
     /** Точечный поиск по DB id — свежие данные (для `/servers/state`). */
     Optional<MinecraftServerListingInfo> find(long serverId);
@@ -32,10 +32,13 @@ public interface ServerSnapshotStore {
     void replaceAll(Collection<MinecraftServerListingInfo> bases);
 
     /** Обновляет Tier-2 сервера ({@code null} ⇒ помечен offline). No-op, если сервер не в наборе. */
-    void putOnline(long serverId, OnlineSnapshot online);
+    void putOnline(long serverId, MinecraftServerSnapshot.Online online);
 
     /** Обновляет Tier-3 сервера. No-op, если сервер не в наборе. */
-    void putPlugin(long serverId, PluginSnapshot plugin);
+    void putPlugin(long serverId, MinecraftServerSnapshot.Plugin plugin);
+
+    /** Обновляет агрегат рейтинга сервера (после голоса). No-op, если сервер не в наборе. */
+    void putRating(long serverId, ServerRatingAggregate rating);
 
     /** Атомарно публикует текущее состояние как неизменяемый вид для читателей. */
     void publish();

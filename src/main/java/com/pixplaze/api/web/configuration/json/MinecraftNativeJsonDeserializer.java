@@ -11,9 +11,7 @@ import tools.jackson.databind.deser.std.StdDeserializer;
 
 import java.util.Objects;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import java.util.stream.Stream;
 
 public class MinecraftNativeJsonDeserializer extends StdDeserializer<RawMinecraftServer> {
     private static final Pattern versionPattern = Pattern.compile("^([A-Za-z\\s]+?)\\s*([0-9]+(?:\\.[0-9xX]+)+)(?:\\s*[\\-/]\\s*([0-9x]+(?:\\.[0-9xX]+)+))?");
@@ -32,7 +30,11 @@ public class MinecraftNativeJsonDeserializer extends StdDeserializer<RawMinecraf
         // Читаем description.text
         if (root.has("description")) {
             if (root.get("description").has("text")) {
-                server.setMotd(root.get("description").get("text").asString());
+                if (root.get("description").has("extra")) {
+                    server.setMotd(MinecraftJsonConverter.convertToLegacy(root.get("description")));
+                } else {
+                    server.setMotd(root.get("description").get("text").asString());
+                }
             } else {
                 server.setMotd(root.get("description").asString());
             }
@@ -82,79 +84,4 @@ public class MinecraftNativeJsonDeserializer extends StdDeserializer<RawMinecraf
 
         return server;
     }
-
-
-//    @Override
-//    public synchronized RawMinecraftServer deserialize(JsonParser jsonParser, DeserializationContext deserializationContext) {
-//        RawMinecraftServer rawMinecraftServer = new RawMinecraftServer();
-//        rawMinecraftServer.setCore(new MinecraftServerCore());
-//        rawMinecraftServer.setState(new MinecraftServerState());
-//
-//        // Убедимся, что мы стоим на начале объекта '{'
-//        if (jsonParser.currentToken() == JsonToken.START_OBJECT) {
-//            jsonParser.nextToken();
-//        }
-//
-//        // Главный цикл: читаем поля корневого объекта, пока не встретим '}'
-//        while (jsonParser.currentToken() != JsonToken.END_OBJECT && jsonParser.currentToken() != null) {
-//            String fieldName = jsonParser.currentName();
-//            jsonParser.nextToken(); // Переходим к значению поля
-//
-//            switch (fieldName) {
-//                case "description" -> {
-//                    // description — это объект {"text": "..."}.
-//                    // Вместо ручного парсинга можно попросить Jackson прочитать его как дерево.
-//                    JsonNode node = jsonParser.readValueAsTree();
-//                    if (node.has("text")) {
-//                        rawMinecraftServer.setMotd(node.get("text").asString());
-//                    }
-//                }
-//                case "favicon" -> {
-//                    rawMinecraftServer.setFavicon(jsonParser.getValueAsString());
-//                    jsonParser.nextToken();
-//                }
-//                case "version" -> {
-//                    // Читаем свойства внутри объекта version
-//                    if (jsonParser.currentToken() == JsonToken.START_OBJECT) {
-//                        jsonParser.nextToken();
-//                        while (jsonParser.currentToken() != JsonToken.END_OBJECT) {
-//                            String vField = jsonParser.currentName();
-//                            jsonParser.nextToken();
-//                            if ("name".equals(vField)) {
-//                                rawMinecraftServer.getCore().setName(jsonParser.getValueAsString());
-//                            }
-//                            jsonParser.skipChildren(); // Безопасно пропускает значение (даже если это объект) и шагает на следующий токен
-//                        }
-//                    }
-//                    jsonParser.nextToken(); // Сдвигаемся с END_OBJECT на следующее поле корня
-//                }
-//                case "players" -> {
-//                    var playersMax = 0;
-//                    var playersOnline = 0;
-//                    if (jsonParser.currentToken() == JsonToken.START_OBJECT) {
-//                        jsonParser.nextToken();
-//                        while (jsonParser.currentToken() != JsonToken.END_OBJECT) {
-//                            String plField = jsonParser.currentName();
-//                            jsonParser.nextToken();
-//                            if ("max".equals(plField)) {
-//                                playersMax = jsonParser.getIntValue();
-//                            } else if ("online".equals(plField)) {
-//                                playersOnline = jsonParser.getIntValue();
-//                            }
-//                            jsonParser.skipChildren(); // Пропускает всё, включая массивы (например, sample)
-//                        }
-//                    }
-//                    rawMinecraftServer.getState().setPlayers(new MinecraftPlayerListInfo(playersMax, playersOnline));
-//                    jsonParser.nextToken(); // Сдвигаемся с END_OBJECT на следующее поле корня
-//                }
-//                default -> {
-//                    // Пропускаем любые неизвестные поля (enforcesSecureChat и т.д.)
-//                    jsonParser.skipChildren();
-//                    jsonParser.nextToken();
-//                }
-//            }
-//        }
-//
-//        return rawMinecraftServer;
-//    }
 }

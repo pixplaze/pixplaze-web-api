@@ -1,6 +1,6 @@
 package com.pixplaze.api.web.service;
 
-import com.pixplaze.api.web.data.server.OnlineSnapshot;
+import com.pixplaze.api.web.data.server.MinecraftServerSnapshot;
 import com.pixplaze.api.web.data.server.RawMinecraftServer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,10 +38,10 @@ public class MinecraftServerMonitoringService {
     }
 
     /**
-     * Tier-2: снимает online-данные по протоколу (status+ping) и мапит в {@link OnlineSnapshot}.
+     * Tier-2: снимает online-данные по протоколу (status+ping) и мапит в {@link MinecraftServerSnapshot.Online}.
      * Бросает {@link IOException} при недоступности/таймауте/протокольной ошибке.
      */
-    public OnlineSnapshot pingOnline(String host, int port) throws IOException {
+    public MinecraftServerSnapshot.Online pingOnline(String host, int port) throws IOException {
         try (Socket socket = new Socket()) {
             socket.connect(new InetSocketAddress(host, port), CONNECT_TIMEOUT_MS);
             socket.setSoTimeout(READ_TIMEOUT_MS);
@@ -69,13 +69,13 @@ public class MinecraftServerMonitoringService {
         }
     }
 
-    private static OnlineSnapshot toOnlineSnapshot(RawMinecraftServer raw, long ping) {
+    private static MinecraftServerSnapshot.Online toOnlineSnapshot(RawMinecraftServer raw, long ping) {
         final var players = raw.getState() != null ? raw.getState().getPlayers() : null;
         final var online = players != null ? players.online() : null;
         final var max = players != null ? players.max() : null;
         final var core = raw.getCore() != null ? raw.getCore().getName() : null;
         final var version = raw.getCore() != null ? raw.getCore().getVersion() : null;
-        return new OnlineSnapshot(raw.getMotd(), core, version, online, max, raw.getFavicon(), ping, Instant.now());
+        return new MinecraftServerSnapshot.Online(raw.getMotd(), core, version, online, max, raw.getFavicon(), ping, Instant.now());
     }
 
     private static void writeHandshake(ByteBuffer buffer, String host, int port) {

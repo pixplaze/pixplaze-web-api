@@ -2,7 +2,6 @@ package com.pixplaze.api.web.data.server;
 
 import com.pixplaze.api.ext.data.server.MinecraftServerPortsInfo;
 import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServer;
-import org.jspecify.annotations.Nullable;
 
 /**
  * Материализованная запись листинга: базовые данные из БД (+ порты) + опциональные тиры online
@@ -14,13 +13,15 @@ import org.jspecify.annotations.Nullable;
  * @param integration NONE (owner-без-плагина) или PLUGIN
  * @param online      Tier-2, {@code null} если сервер сейчас недоступен
  * @param plugin      Tier-3, {@code null} если плагина нет или он молчит
+ * @param rating      агрегат оценок из БД (среднее + число голосов); персистентен, не зависит от online
  */
 public record MinecraftServerListingInfo(
         MinecraftServer base,
         MinecraftServerPortsInfo ports,
         IntegrationType integration,
-        @Nullable OnlineSnapshot online,
-        @Nullable PluginSnapshot plugin
+        MinecraftServerSnapshot.Online online,
+        MinecraftServerSnapshot.Plugin plugin,
+        ServerRatingAggregate rating
 ) {
     public long id() {
         return base.getId();
@@ -34,11 +35,15 @@ public record MinecraftServerListingInfo(
         return online != null;
     }
 
-    public MinecraftServerListingInfo withOnline(@Nullable OnlineSnapshot newOnline) {
-        return new MinecraftServerListingInfo(base, ports, integration, newOnline, plugin);
+    public MinecraftServerListingInfo withOnline(MinecraftServerSnapshot.Online newOnline) {
+        return new MinecraftServerListingInfo(base, ports, integration, newOnline, plugin, rating);
     }
 
-    public MinecraftServerListingInfo withPlugin(@Nullable PluginSnapshot newPlugin) {
-        return new MinecraftServerListingInfo(base, ports, integration, online, newPlugin);
+    public MinecraftServerListingInfo withPlugin(MinecraftServerSnapshot.Plugin newPlugin) {
+        return new MinecraftServerListingInfo(base, ports, integration, online, newPlugin, rating);
+    }
+
+    public MinecraftServerListingInfo withRating(ServerRatingAggregate newRating) {
+        return new MinecraftServerListingInfo(base, ports, integration, online, plugin, newRating);
     }
 }
