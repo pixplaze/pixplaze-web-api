@@ -138,13 +138,29 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-flyway-test</artifactId>
-			<scope>test</scope>
+<!--			<scope>test</scope>-->
 			<exclusions>
 				<exclusion>
 					<groupId>org.springframework.boot</groupId>
 					<artifactId>spring-boot-starter-logging</artifactId>
 				</exclusion>
 			</exclusions>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-jooq-test</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-testcontainers</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers-junit-jupiter</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers-postgresql</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -180,8 +196,15 @@
 	<build>
 		<plugins>
 			<plugin>
-				<groupId>org.jooq</groupId>
-				<artifactId>jooq-codegen-maven</artifactId>
+				<groupId>org.testcontainers</groupId>
+				<artifactId>testcontainers-jooq-codegen-maven-plugin</artifactId>
+				<dependencies>
+					<dependency>
+						<groupId>org.postgresql</groupId>
+						<artifactId>postgresql</artifactId>
+						<version>42.7.4</version>
+					</dependency>
+				</dependencies>
 				<executions>
 					<execution>
 						<id>jooq-codegen</id>
@@ -190,60 +213,65 @@
 							<goal>generate</goal>
 						</goals>
 						<configuration>
-							<jdbc>
-								<driver>${env.PIXPLAZE_DB_DRIVER}</driver>
-								<url>${env.PIXPLAZE_DB_URL}</url>
-								<user>${env.PIXPLAZE_DB_USERNAME}</user>
-								<password>${env.PIXPLAZE_DB_PASSWORD}</password>
-							</jdbc>
-							<generator>
-								<database>
-									<name>org.jooq.meta.postgres.PostgresDatabase</name>
-									<includes>.*</includes>
-									<inputSchema>public</inputSchema>
-									<forcedTypes>
-										<forcedType>
-											<userType>com.pixplaze.api.web.data.voucher.VoucherCodeType</userType>
-											<converter>new org.jooq.impl.EnumConverter(java.lang.String.class, com.pixplaze.api.web.data.voucher.VoucherCodeType.class)</converter>
-											<includeExpression>voucher_code\.type</includeExpression>
-										</forcedType>
-										<forcedType>
-											<userType>com.pixplaze.api.web.data.server.MinecraftServerStatus</userType>
-											<converter>new org.jooq.impl.EnumConverter(java.lang.String.class, com.pixplaze.api.web.data.server.MinecraftServerStatus.class)</converter>
-											<includeExpression>minecraft_server_state\.status</includeExpression>
-										</forcedType>
-										<forcedType>
-											<userType>com.pixplaze.api.web.data.auth.RefreshTokenSubjectType</userType>
-											<converter>new org.jooq.impl.EnumConverter(java.lang.String.class, com.pixplaze.api.web.data.auth.RefreshTokenSubjectType.class)</converter>
-											<includeExpression>refresh_token\.subject_type</includeExpression>
-										</forcedType>
-									</forcedTypes>
-								</database>
-								<generate>
-									<pojos>true</pojos>     <!-- Включаем генерацию POJO-классов -->
-									<records>false</records> <!-- Отключаем jOOQ-зависимые UpdatableRecordImpl -->
-									<daos>false</daos>
-									<interfaces>false</interfaces>
-									<fluentSetters>true</fluentSetters>
-									<!--									<pojosAsJavaRecordClasses>true</pojosAsJavaRecordClasses> &lt;!&ndash; Включаем Java 16+ Records &ndash;&gt;-->
-								</generate>
-								<target>
-									<packageName>com.pixplaze.api.web.data.db</packageName>
-									<directory>target/generated-sources/jooq</directory>
-								</target>
-								<strategy>
-									<matchers>
-										<tables>
-											<table>
-												<tableClass>
-													<expression>$0_Table</expression>
-													<transform>PASCAL</transform>
-												</tableClass>
-											</table>
-										</tables>
-									</matchers>
-								</strategy>
-							</generator>
+							<database>
+								<type>POSTGRES</type>
+								<containerImage>postgres:15-trixie</containerImage>
+							</database>
+							<flyway>
+								<locations>
+									filesystem:src/main/resources/db/migration
+								</locations>
+							</flyway>
+							<jooq>
+								<generator>
+									<database>
+										<includes>.*</includes>
+										<excludes>flyway_schema_history</excludes>
+										<inputSchema>public</inputSchema>
+										<forcedTypes>
+											<forcedType>
+												<userType>com.pixplaze.api.web.data.voucher.VoucherCodeType</userType>
+												<converter>new org.jooq.impl.EnumConverter(java.lang.String.class, com.pixplaze.api.web.data.voucher.VoucherCodeType.class)</converter>
+												<includeExpression>voucher_code\.type</includeExpression>
+											</forcedType>
+											<forcedType>
+												<userType>com.pixplaze.api.web.data.server.MinecraftServerStatus</userType>
+												<converter>new org.jooq.impl.EnumConverter(java.lang.String.class, com.pixplaze.api.web.data.server.MinecraftServerStatus.class)</converter>
+												<includeExpression>minecraft_server_state\.status</includeExpression>
+											</forcedType>
+											<forcedType>
+												<userType>com.pixplaze.api.web.data.auth.RefreshTokenSubjectType</userType>
+												<converter>new org.jooq.impl.EnumConverter(java.lang.String.class, com.pixplaze.api.web.data.auth.RefreshTokenSubjectType.class)</converter>
+												<includeExpression>refresh_token\.subject_type</includeExpression>
+											</forcedType>
+										</forcedTypes>
+									</database>
+									<generate>
+										<pojos>true</pojos>     <!-- Включаем генерацию POJO-классов -->
+										<records>false</records> <!-- Отключаем jOOQ-зависимые UpdatableRecordImpl -->
+										<daos>false</daos>
+										<interfaces>false</interfaces>
+										<fluentSetters>true</fluentSetters>
+										<!--									<pojosAsJavaRecordClasses>true</pojosAsJavaRecordClasses> &lt;!&ndash; Включаем Java 16+ Records &ndash;&gt;-->
+									</generate>
+									<target>
+										<packageName>com.pixplaze.api.web.data.db</packageName>
+										<directory>target/generated-sources/jooq</directory>
+									</target>
+									<strategy>
+										<matchers>
+											<tables>
+												<table>
+													<tableClass>
+														<expression>$0_Table</expression>
+														<transform>PASCAL</transform>
+													</tableClass>
+												</table>
+											</tables>
+										</matchers>
+									</strategy>
+								</generator>
+							</jooq>
 						</configuration>
 					</execution>
 				</executions>
@@ -275,23 +303,6 @@
 							<artifactId>lombok</artifactId>
 						</exclude>
 					</excludes>
-				</configuration>
-			</plugin>
-			<plugin>
-				<groupId>org.flywaydb</groupId>
-				<artifactId>flyway-maven-plugin</artifactId>
-				<version>${flyway.version}</version>
-				<configuration>
-					<url>${env.PIXPLAZE_DB_URL}</url>
-					<user>${env.PIXPLAZE_DB_USERNAME}</user>
-					<password>${env.PIXPLAZE_DB_PASSWORD}</password>
-					<schemas>
-						<schema>public</schema>
-					</schemas>
-					<locations>
-						<location>filesystem:src/main/resources/db/migration</location>
-					</locations>
-					<outOfOrder>true</outOfOrder>
 				</configuration>
 			</plugin>
 		</plugins>

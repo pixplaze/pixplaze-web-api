@@ -84,6 +84,27 @@ mvn flyway:migrate
 mvn -DskipTests package          # → target/pixplaze-web-api-1.0.0.jar
 ```
 
+#### 1.3 (Upd 28/9/15) Налажена генерация через TestContainers, которая генерит объекты для БД без внешнего сервера Postgres, собирая всё сразу.
+```shell
+mvn clean -DskipTests package 
+```
+Нюансы:
+- С недавних пор в Докере мин. версия API — 1.40, из-за чего Testcontainers цепляются к Докеру, поэтому нужно в настройках Докера понизить верию API (см. тут: https://forums.docker.com/t/portainer-problem-in-windows-docker-4-52-0/150494/4)
+```shell
+{
+  "builder": {
+    "gc": {
+      "defaultKeepStorage": "20GB",
+      "enabled": true
+    }
+  },
+  "experimental": true,
+  "min-api-version": "1.24"
+}
+```
+- Для корректной генерации объектов в pom должна указываться версия Postgres не выше 42.7.4, т.к. поздние версии перешли на CAPSLOCK в выдаваемых параметрах, а jooq этого не понимает. (Подробее тут: https://github.com/testcontainers/testcontainers-jooq-codegen-maven-plugin/issues/46)
+
+
 #### 1.4 Собрать runtime-образ из jar
 ```shell
 docker build --platform linux/arm64 -t pixplaze-web-api:latest -- load .
