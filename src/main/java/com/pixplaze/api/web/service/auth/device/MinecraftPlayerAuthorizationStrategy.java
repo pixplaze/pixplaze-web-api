@@ -1,11 +1,10 @@
 package com.pixplaze.api.web.service.auth.device;
 
+import com.pixplaze.api.web.service.auth.device.model.DeviceAuthorizationContext;
 import com.pixplaze.api.ext.data.Authority;
 import com.pixplaze.api.ext.data.auth.AuthorizationTokenInfo;
 import com.pixplaze.api.ext.data.auth.MinecraftPlayerAuthorizationDetails;
-import com.pixplaze.api.web.data.auth.DeviceAuthorizationSession;
 import com.pixplaze.api.web.data.dto.DeviceAuthorizationInfo;
-import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
 import com.pixplaze.api.web.data.user.MinecraftPlayerPrincipal;
 import com.pixplaze.api.web.exception.MinecraftPlayerAlreadyOwnedException;
 import com.pixplaze.api.web.exception.auth.DeviceAuthorizationError;
@@ -24,7 +23,6 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.Objects;
 
 @Slf4j
@@ -44,19 +42,17 @@ public class MinecraftPlayerAuthorizationStrategy implements DeviceAuthorization
     private final JsonMapper jsonMapper;
 
     @Override
-    public DeviceAuthorizationInfo describe(DeviceAuthorizationSession<MinecraftPlayerAuthorizationDetails> session) {
-        final var sessionState = session.getState();
-        final var authorizationDetails = sessionState.authorizationDetails().orElseThrow(DeviceAuthorizationException::new);
-        final var status = sessionState.status();
-        final var authority = sessionState.authority();
+    public DeviceAuthorizationInfo describe(DeviceAuthorizationContext<MinecraftPlayerAuthorizationDetails> context) {
+        final var details = requireDetails(context);
+        final var authority = context.authority();
 
         return new DeviceAuthorizationInfo(
                 Authority.Role.MINECRAFT_PLAYER.name(),
-                status,
+                context.status(),
                 authority.source().code(),
                 authority.targets(),
                 authority.permissions(),
-                minecraftPlayerMapper.toAuthorizationDetails(authorizationDetails)
+                minecraftPlayerMapper.toAuthorizationDetails(details)
         );
     }
 
@@ -71,10 +67,9 @@ public class MinecraftPlayerAuthorizationStrategy implements DeviceAuthorization
      * Невалидный {@code null} поднимется как {@code INVALID_REQUEST}.
      */
     @Override
-    public void validate(DeviceAuthorizationSession<MinecraftPlayerAuthorizationDetails> session) {
+    public void validate(DeviceAuthorizationContext<MinecraftPlayerAuthorizationDetails> context) {
         try {
-            final var authorizationDetails = session.getState().authorizationDetails().orElseThrow(NullPointerException::new);
-            validateAuthorizationDetails(authorizationDetails);
+            validateAuthorizationDetails(Objects.requireNonNull(context.details()));
         } catch (NullPointerException e) {
             throw exceptionInvalidRequest(e);
         }
@@ -82,42 +77,42 @@ public class MinecraftPlayerAuthorizationStrategy implements DeviceAuthorization
 
     @Override
     @Transactional
-    public AuthorizationTokenInfo authorize(DeviceAuthorizationSession<MinecraftPlayerAuthorizationDetails> session) {
-        final var sessionState = session.getState();
-        final var authorizationDetails = sessionState.authorizationDetails().orElseThrow(this::exceptionInvalidRequest);
-        final var approverPrincipal = sessionState.profile().orElseThrow(this::exceptionInvalidGrant);
+    public AuthorizationTokenInfo authorize(DeviceAuthorizationContext<MinecraftPlayerAuthorizationDetails> context) {
+        final var details = requireDetails(context);
+        final var approver = context.approver();
 
-        // Checks if not linked player is in the same network with approverPrincipal
-        if (false && !minecraftPlayerService.isProfileLinked(authorizationDetails.uuid()) && !AddressUtils.isIpv4Same(authorizationDetails.ipAddress(), approverPrincipal.getIpAddress())) {
+        // Checks if not linked player is in the same network with approver
+        if (false && !minecraftPlayerService.isProfileLinked(details.uuid()) && !AddressUtils.isIpv4Same(details.ipAddress(), approver.getIpAddress())) {
             throw exceptionAccessDenied();
         }
 
         try {
-            minecraftPlayerService.upsert(minecraftPlayerMapper.toEntity(authorizationDetails));
-            minecraftPlayerService.linkProfile(authorizationDetails.uuid(), approverPrincipal.getId());
+            minecraftPlayerService.upsert(minecraftPlayerMapper.toEntity(details));
+            minecraftPlayerService.linkProfile(details.uuid(), approver.getId());
 
             // Фиксируем членство игрока на сервере (если он зарегистрирован) — ребро игрок↔сервер,
             // благодаря которому host попадает в aud токена профиля. Незарегистрированный сервер пропускаем.
-            minecraftServerService.findByHost(authorizationDetails.host())
+            minecraftServerService.findByHost(details.host())
                     .ifPresentOrElse(server -> {
                         minecraftServerService.linkPlayer(
                                 server.getId(),
-                                authorizationDetails.uuid(),
-                                Boolean.TRUE.equals(authorizationDetails.isOperator())
+                                details.uuid(),
+                                Boolean.TRUE.equals(details.isOperator())
                         );
-                        minecraftServerService.addFavorite(server.getId(), approverPrincipal.getId());
+                        minecraftServerService.addFavorite(server.getId(), approver.getId());
                     }, this::exceptionAccessDenied);
 
-//            grantApproverRequestedRoles(approverPrincipal, sessionState.authority());
+            // Роль MINECRAFT_PLAYER + host в aud появляются у ПРОФИЛЯ не здесь, а при следующем выпуске
+            // его токена (sign-in / refresh): applyAuthority выводит их из персистентных связей выше.
 
             // Субъектный принципал появляется только здесь — после успешной привязки игрока к профилю.
             final var subjectPrincipal = new MinecraftPlayerPrincipal();
-            subjectPrincipal.setUuid(authorizationDetails.uuid());
-            subjectPrincipal.setUsername(authorizationDetails.username());
-            subjectPrincipal.setProfileId(approverPrincipal.getId());
-            subjectPrincipal.setHost(authorizationDetails.host());
+            subjectPrincipal.setUuid(details.uuid());
+            subjectPrincipal.setUsername(details.username());
+            subjectPrincipal.setProfileId(approver.getId());
+            subjectPrincipal.setHost(details.host());
             // aud = host сервера, против которого авторизован игрок (targets ≡ aud).
-            subjectPrincipal.setAuthority(Authority.as(sessionState.authority()).to(authorizationDetails.host()).grant());
+            subjectPrincipal.setAuthority(Authority.as(context.authority()).to(details.host()).grant());
 
             final var accessToken = minecraftPlayerAccessTokenService.issue(subjectPrincipal, MINECRAFT_PLAYER_ACCESS_TTL);
             final var refreshToken = refreshTokenService.issue(subjectPrincipal);
@@ -128,19 +123,14 @@ public class MinecraftPlayerAuthorizationStrategy implements DeviceAuthorization
         }
     }
 
-    /// Наделяет одобряющего ролями, которые он разрешил получить MAD (поверх своих), чтобы профиль мог
-    /// действовать как авторизованный игрок. Мутация in-memory — точка для следующей задачи (роли из связей).
-    private void grantApproverRequestedRoles(ApplicationClientPrincipal approver, Authority requested) {
-        final var roles = new ArrayList<>(approver.getAuthority().roles());
-        requested.roles().forEach(role -> {
-            if (!roles.contains(role)) {
-                roles.add(role);
-            }
-        });
-        approver.setAuthority(Authority.as(roles.toArray(new Authority.Role[0]))
-                .from(approver.getAuthority().source())
-                .to(approver.getAuthority().targets())
-                .grant(approver.getAuthority().permissions()));
+    private MinecraftPlayerAuthorizationDetails requireDetails(DeviceAuthorizationContext<MinecraftPlayerAuthorizationDetails> context) {
+        final var details = context.details();
+
+        if (details == null) {
+            throw exceptionInvalidRequest();
+        }
+
+        return details;
     }
 
     private void validateAuthorizationDetails(MinecraftPlayerAuthorizationDetails authorizationDetails) {
@@ -158,10 +148,6 @@ public class MinecraftPlayerAuthorizationStrategy implements DeviceAuthorization
 
     private @NonNull DeviceAuthorizationException exceptionInvalidRequest(Exception e) {
         return new DeviceAuthorizationException(DeviceAuthorizationError.INVALID_REQUEST, e);
-    }
-
-    private @NonNull DeviceAuthorizationException exceptionInvalidGrant() {
-        return new DeviceAuthorizationException(DeviceAuthorizationError.INVALID_GRANT);
     }
 
     private @NonNull DeviceAuthorizationException exceptionAccessDenied() {

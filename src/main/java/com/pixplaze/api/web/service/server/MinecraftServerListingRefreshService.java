@@ -4,15 +4,19 @@ import com.pixplaze.api.ext.data.server.MinecraftServerPortsInfo;
 import com.pixplaze.api.web.data.server.*;
 import com.pixplaze.api.web.service.MinecraftServerMonitoringService;
 import com.pixplaze.api.web.service.MinecraftServerService;
+import com.pixplaze.api.web.service.server.model.MinecraftServerListingInfo;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
@@ -57,11 +61,11 @@ public class MinecraftServerListingRefreshService {
                     .map(server -> new MinecraftServerListingInfo(
                             server,
                             new MinecraftServerPortsInfo(portById.getOrDefault(server.getId(), 25565)),
-                            IntegrationType.NONE, null, null,
+                            IntegrationType.ONLINE, null, null,
                             ratingById.getOrDefault(server.getId(), ServerRatingAggregate.EMPTY)))
                     .toList();
             store.replaceAll(listed);
-            this.pingTargets = targets;
+            pingTargets = targets;
             store.publish();
             log.debug("Server base synced: {} listed servers", listed.size());
         } catch (Exception e) {
@@ -75,21 +79,42 @@ public class MinecraftServerListingRefreshService {
     )
     public void pingTick() {
         final var targets = throttle.selectDue(pingTargets);
-        log.debug("Pinging {} servers...", targets.size());
-        for (final var target : targets) {
-            CompletableFuture.supplyAsync(() -> ping(target), serverFetchExecutor)
-                    .whenComplete((online, error) -> {
-                        // null (недоступен/ошибка) ⇒ помечаем OFFLINE; иначе кладём Tier-2.
-                        store.putOnline(target.serverId(), online);
-                        if (online != null) {
-                            throttle.recordSuccess(target);
-                            log.trace("Pinging {}:{} completed...", target.host(), target.port());
-                        } else {
-                            throttle.recordFailure(target);
-                            log.error("Pinging {}:{} failed, reason: {}...", target.host(), target.port(), error.getMessage());
-                        }
-                    });
+        if (targets.isEmpty()) {
+            return;
         }
+        log.debug("Pinging {} servers...", targets.size());
+
+        // Счётчик отказов пачки (atomic — инкремент на потоках executor'а). Успехи отдельно не считаем:
+        // каждый пинг завершается ровно раз и попадает в одну ветку ⇒ ok == targets.size() - failed.
+        final var failed = new AtomicInteger();
+
+        final var batch = targets.stream()
+                .map(target -> CompletableFuture
+                        .supplyAsync(() -> ping(target), serverFetchExecutor)
+                        // Логирование — на уровне CF: ping пробрасывает причину, ошибку видим здесь.
+                        .whenComplete((online, error) -> {
+                            store.putOnline(target.serverId(), online);
+                            if (error == null) {
+                                throttle.recordSuccess(target);
+                                log.trace("Pinged {}:{} ok", target.host(), target.port());
+                            } else {
+                                throttle.recordFailure(target);
+                                failed.incrementAndGet();
+                                log.debug("Ping failed {}:{} — {}", target.host(), target.port(), rootMessage(error));
+                            }
+                        }))
+                .toArray(CompletableFuture[]::new);
+
+        // Сводка по завершении ВСЕЙ пачки (не блокирует тик — колбэк асинхронный).
+        CompletableFuture.allOf(batch).whenComplete((ignored, ignoredError) -> {
+            final var failedCount = failed.get();
+            final var okCount = targets.size() - failedCount;
+            if (failedCount > 0) {
+                log.info("Ping batch: {}/{} failed ({} ok)", failedCount, targets.size(), okCount);
+            } else {
+                log.debug("Ping batch: all {} ok", okCount);
+            }
+        });
     }
 
     @Scheduled(fixedDelayString = "${app.servers.publish.millis:5000}")
@@ -97,12 +122,21 @@ public class MinecraftServerListingRefreshService {
         store.publish();
     }
 
+    /// Один пинг. Причину НЕ глушим — пробрасываем в CompletableFuture (checked IOException заворачиваем
+    /// в CompletionException), чтобы логирование/учёт шли на уровне CF-цепочки в {@link #pingTick()}.
     private MinecraftServerSnapshot.Online ping(ServerPingTarget target) {
         try {
             return monitoringService.pingOnline(target.host(), target.port());
-        } catch (Exception e) {
-            log.debug("Ping failed {}:{} — {}", target.host(), target.port(), e.toString());
-            return null;
+        } catch (IOException e) {
+            throw new CompletionException(e);
         }
+    }
+
+    /// Корневая причина в компактном виде для лога: снимает обёртку CompletionException.
+    private static String rootMessage(Throwable error) {
+        final var cause = error instanceof CompletionException && error.getCause() != null ? error.getCause() : error;
+        return cause.getMessage() != null
+                ? cause.getClass().getSimpleName() + ": " + cause.getMessage()
+                : cause.getClass().getSimpleName();
     }
 }

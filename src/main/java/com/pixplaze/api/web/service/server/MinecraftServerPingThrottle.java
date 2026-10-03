@@ -36,7 +36,7 @@ public class MinecraftServerPingThrottle {
     private static final Duration SUBNET_MIN_INTERVAL = Duration.ofSeconds(10);
     private static final int SUBNET_MAX_CONCURRENT = 1;
     private static final int MAX_PINGS_PER_TICK = 50;
-    private static final double JITTER = 0.4; // ±40%
+    private static final double JITTER = 0.4;
     private static final Duration DNS_TTL = Duration.ofMinutes(10);
     private static final int MAX_FAILURE_EXP = 6;
 
@@ -57,7 +57,8 @@ public class MinecraftServerPingThrottle {
             if (picked.size() >= MAX_PINGS_PER_TICK) {
                 break;
             }
-            final var gate = gate(subnetOf(target.host()));
+            final var subnetKey = subnetOf(target.host());
+            final var gate = gate(subnetKey);
             if (gate.inFlight.get() >= SUBNET_MAX_CONCURRENT) {
                 continue;
             }
@@ -65,10 +66,15 @@ public class MinecraftServerPingThrottle {
                 continue;
             }
             // claim: занимаем подсеть и тентативно сдвигаем nextCheckAt (финализируется в record*),
-            // чтобы не выбрать сервер повторно до получения результата.
+            // чтобы не выбрать сервер повторно до получения результата. Ключ занятого шлюза запоминаем
+            // на расписании: release должен освободить РОВНО его, а не перерезолвить host заново —
+            // иначе при «мигающем» DNS (resolve⇄unresolved) claim и release попадут в разные шлюзы,
+            // inFlight занятого зависнет на 1 и сервер выпадет из выбора навсегда.
             gate.inFlight.incrementAndGet();
             gate.lastAttemptAt = now;
-            schedule(target.serverId()).nextCheckAt = now.plus(BASE_INTERVAL);
+            final var schedule = schedule(target.serverId());
+            schedule.claimedSubnetKey = subnetKey;
+            schedule.nextCheckAt = now.plus(BASE_INTERVAL);
             picked.add(target);
         }
         return picked;
@@ -89,9 +95,14 @@ public class MinecraftServerPingThrottle {
         release(target);
     }
 
+    /// Освобождаем ИМЕННО тот шлюз, что занял claim (ключ сохранён на расписании), а не результат
+    /// повторного резолва host — гарантия симметрии inFlight при нестабильном DNS.
     private void release(ServerPingTarget target) {
-        final var gate = gate(subnetOf(target.host()));
-        gate.inFlight.updateAndGet(current -> current > 0 ? current - 1 : 0);
+        final var claimedKey = schedule(target.serverId()).claimedSubnetKey;
+        if (claimedKey == null) {
+            return; // release без парного claim — освобождать нечего
+        }
+        gate(claimedKey).inFlight.updateAndGet(current -> current > 0 ? current - 1 : 0);
     }
 
     private static long jitter(long millis) {
@@ -131,6 +142,8 @@ public class MinecraftServerPingThrottle {
     private static final class Schedule {
         volatile Instant nextCheckAt = Instant.EPOCH; // новый сервер — сразу due
         volatile int failures = 0;
+        /// Ключ подсети, занятый последним claim; release освобождает ровно его. null — не занят.
+        volatile String claimedSubnetKey;
     }
 
     private static final class SubnetGate {

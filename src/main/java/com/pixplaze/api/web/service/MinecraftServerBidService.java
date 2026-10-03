@@ -26,16 +26,16 @@ public class MinecraftServerBidService {
     @Transactional
     public BidResult createBid(String name, String host, String ownerUsername, Long ownerProfileId) {
         final var voucher = voucherCodeService.issue(VoucherCodeType.INVITE_MINECRAFT_SERVER, 1);
-        voucherCodeService.bind(voucher.getId(), ownerProfileId);
-
-        final var bid = create(new MinecraftServerBid()
+        final var minecraftServerBid = create(new MinecraftServerBid()
                 .setName(name)
                 .setHost(host)
                 .setOwnerUsername(ownerUsername)
                 .setVoucherCodeId(voucher.getId())
                 .setProfileId(ownerProfileId));
 
-        return new BidResult(bid, voucher.getCode());
+        voucherCodeService.bind(voucher.getId(), ownerProfileId);
+
+        return new BidResult(minecraftServerBid, voucher.getCode());
     }
 
     public Optional<MinecraftServerBid> findByHost(String host) {

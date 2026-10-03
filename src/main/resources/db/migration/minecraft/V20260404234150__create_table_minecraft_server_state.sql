@@ -1,7 +1,11 @@
 CREATE TABLE minecraft_server_state (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    -- UNIQUE обеспечивает связь один-к-одному с minecraft_server
     minecraft_server_id BIGINT NOT NULL UNIQUE REFERENCES minecraft_server(id) ON DELETE CASCADE,
-    status VARCHAR(16) NOT NULL DEFAULT 'PENDING',
+    status VARCHAR(16) NOT NULL DEFAULT 'PENDING', -- PENDING | ONLINE | OFFLINE | BANNED
+    integration VARCHAR(16) NOT NULL DEFAULT 'ONLINE', -- NATIVE | PLUGIN
+    players_max INT NOT NULL DEFAULT 20,
+    players_online INT NOT NULL DEFAULT 0,
+    ping INT NOT NULL,
+    tps INT NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 )

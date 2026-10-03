@@ -1,6 +1,6 @@
 package com.pixplaze.api.web.data.dto;
 
-import com.pixplaze.api.web.data.auth.DeviceAuthorizationState;
+import com.pixplaze.api.web.data.auth.DeviceAuthorizationStatus;
 
 import java.util.List;
 import java.util.Map;
@@ -24,7 +24,7 @@ import java.util.Map;
  */
 public record DeviceAuthorizationInfo(
         String type,
-        DeviceAuthorizationState.Status status,
+        DeviceAuthorizationStatus status,
         String source,
         List<String> targets,
         List<String> permissions,

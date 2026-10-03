@@ -1,17 +1,17 @@
 package com.pixplaze.api.web.service.auth.device;
 
+import com.pixplaze.api.web.service.auth.device.model.DeviceAuthorizationContext;
 import com.pixplaze.api.ext.data.Authority;
 import com.pixplaze.api.ext.data.auth.MinecraftServerAuthorizationDetails;
 import com.pixplaze.api.ext.data.auth.VerifiableAuthorizationTokenInfo;
 import com.pixplaze.api.ext.data.player.MinecraftPlayerInfo;
-import com.pixplaze.api.web.data.auth.DeviceAuthorizationSession;
 import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServer;
 import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServerBid;
 import com.pixplaze.api.web.data.db.tables.pojos.VoucherCode;
 import com.pixplaze.api.web.data.dto.DeviceAuthorizationInfo;
 import com.pixplaze.api.web.data.server.MinecraftServerStatus;
-import com.pixplaze.api.web.data.user.MinecraftServerPrincipal;
 import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
+import com.pixplaze.api.web.data.user.MinecraftServerPrincipal;
 import com.pixplaze.api.web.data.voucher.VoucherCodeType;
 import com.pixplaze.api.web.exception.auth.DeviceAuthorizationError;
 import com.pixplaze.api.web.exception.auth.DeviceAuthorizationException;
@@ -30,8 +30,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
 
-import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -53,19 +53,17 @@ public class MinecraftServerAuthorizationStrategy implements DeviceAuthorization
     private String apiGateway;
 
     @Override
-    public DeviceAuthorizationInfo describe(DeviceAuthorizationSession<MinecraftServerAuthorizationDetails> session) {
-        final var sessionState = session.getState();
-        final var authorizationDetails = sessionState.authorizationDetails().orElseThrow(DeviceAuthorizationException::new);
-        final var status = sessionState.status();
-        final var authority = sessionState.authority();
+    public DeviceAuthorizationInfo describe(DeviceAuthorizationContext<MinecraftServerAuthorizationDetails> context) {
+        final var details = requireDetails(context);
+        final var authority = context.authority();
 
         return new DeviceAuthorizationInfo(
                 Authority.Role.MINECRAFT_SERVER.name(),
-                status,
+                context.status(),
                 authority.source().code(),
                 authority.targets(),
                 authority.permissions(),
-                minecraftServerMapper.toAuthorizationDetails(authorizationDetails)
+                minecraftServerMapper.toAuthorizationDetails(details)
         );
     }
 
@@ -81,10 +79,10 @@ public class MinecraftServerAuthorizationStrategy implements DeviceAuthorization
      * Атомарные проверки, создание записей и потребление ваучера — в {@link #authorize}.
      */
     @Override
-    public void validate(DeviceAuthorizationSession<MinecraftServerAuthorizationDetails> session) {
-        final var authorizationDetails = session.getState().authorizationDetails().orElseThrow(NullPointerException::new);
-        final var serverInfo = Objects.requireNonNull(authorizationDetails.minecraftServerInfo());
-        final var minecraftServerHost = Objects.requireNonNull(serverInfo.host());
+    public void validate(DeviceAuthorizationContext<MinecraftServerAuthorizationDetails> context) {
+        final var authorizationDetails = requireDetails(context);
+        final var serverInfo = Optional.ofNullable(authorizationDetails.minecraftServerInfo()).orElseThrow(this::exceptionInvalidRequest);
+        final var minecraftServerHost = Optional.ofNullable((serverInfo.host())).orElseThrow(this::exceptionInvalidRequest);
 
         if (serverInfo.id() == null) {
             validateRegistrationDetails(authorizationDetails);
@@ -102,20 +100,17 @@ public class MinecraftServerAuthorizationStrategy implements DeviceAuthorization
 
     @Override
     @Transactional
-    public VerifiableAuthorizationTokenInfo authorize(DeviceAuthorizationSession<MinecraftServerAuthorizationDetails> session) {
-        final var sessionState = session.getState();
-        final var authorizationDetails = sessionState.authorizationDetails().orElseThrow(this::exceptionInvalidRequest);
-        final var approverPrincipal = sessionState.profile().orElseThrow(this::exceptionInvalidGrant);
-
-        final var minecraftServer = authorize(authorizationDetails, approverPrincipal);
+    public VerifiableAuthorizationTokenInfo authorize(DeviceAuthorizationContext<MinecraftServerAuthorizationDetails> context) {
+        final var authorizationDetails = requireDetails(context);
+        final var minecraftServer = authorize(authorizationDetails, context.approver());
 
         // Субъектный принципал появляется только здесь — после успешного резолва сервера.
         final var subjectPrincipal = new MinecraftServerPrincipal();
         subjectPrincipal.setServerId(minecraftServer.getId());
         subjectPrincipal.setName(minecraftServer.getName());
         subjectPrincipal.setHost(minecraftServer.getHost());
-        // aud = [gateway, host]: серверный токен ходит и в BFF, и валидируется самим сервером (targets ≡ aud).
-        subjectPrincipal.setAuthority(Authority.as(sessionState.authority())
+        // aud = [gateway, host]: серверный токен ходит и в BFF, и валидируется самим сервером (targets == aud).
+        subjectPrincipal.setAuthority(Authority.as(context.authority())
                 .to(apiGateway, minecraftServer.getHost())
                 .grant());
 
@@ -124,6 +119,10 @@ public class MinecraftServerAuthorizationStrategy implements DeviceAuthorization
         final var publicKey = minecraftServerAccessTokenService.getPublicKeyBase64();
 
         return new VerifiableAuthorizationTokenInfo(accessToken, refreshToken, publicKey);
+    }
+
+    private MinecraftServerAuthorizationDetails requireDetails(DeviceAuthorizationContext<MinecraftServerAuthorizationDetails> context) {
+        return Optional.ofNullable(context.details()).orElseThrow(this::exceptionInvalidRequest);
     }
 
     private MinecraftServer authorize(MinecraftServerAuthorizationDetails authorizationDetails, ApplicationClientPrincipal clientPrincipial) {
@@ -153,18 +152,18 @@ public class MinecraftServerAuthorizationStrategy implements DeviceAuthorization
                 .distinct()
                 .map(minecraftPlayerMapper::toEntity)
                 .collect(Collectors.toList());
-        final var minecraftServerOwner = minecraftServerOperators.stream()
-                .filter(isMinecraftServerOwner(minecraftServerBid))
-                .findFirst()
-                .orElseThrow(this::exceptionAccessDenied);
+//        final var minecraftServerOwner = minecraftServerOperators.stream()
+//                .filter(isMinecraftServerOwner(minecraftServerBid))
+//                .findFirst()
+//                .orElseThrow(this::exceptionAccessDenied);
         final var minecraftServer = minecraftServerMapper.toEntity(minecraftServerInfo).setName(minecraftServerBid.getName());
-        final var server = minecraftServerService.createActive(minecraftServer);
+        final var server = minecraftServerService.create(minecraftServer);
 
         minecraftPlayerService.createAll(minecraftServerPlayers);
-        minecraftServerService.linkOperators(server.getId(), List.of(minecraftServerOwner.uuid()), minecraftServerOwner.uuid());
+        minecraftServerService.linkOperators(server.getId(), minecraftServerOperators.stream().map(MinecraftPlayerInfo::uuid).toList(), null);
 
         // Профиль владельца связываем с его MC-игроком, чтобы он сразу мог делать re-auth как оператор.
-        minecraftPlayerService.linkProfile(minecraftServerOwner.uuid(), clientPrincipial.getId());
+//        minecraftPlayerService.linkProfile(minecraftServerOwner.uuid(), clientPrincipial.getId());
 
         try {
             voucherCodeService.activate(voucher, clientPrincipial.getId());
@@ -246,15 +245,7 @@ public class MinecraftServerAuthorizationStrategy implements DeviceAuthorization
         return new DeviceAuthorizationException(DeviceAuthorizationError.INVALID_REQUEST);
     }
 
-    private @NonNull DeviceAuthorizationException exceptionInvalidRequest(Exception e) {
-        return new DeviceAuthorizationException(DeviceAuthorizationError.INVALID_REQUEST, e);
-    }
-
     private @NonNull DeviceAuthorizationException exceptionAccessDenied() {
         return new DeviceAuthorizationException(DeviceAuthorizationError.ACCESS_DENIED);
-    }
-
-    private @NonNull DeviceAuthorizationException exceptionInvalidGrant() {
-        return new DeviceAuthorizationException(DeviceAuthorizationError.INVALID_GRANT);
     }
 }

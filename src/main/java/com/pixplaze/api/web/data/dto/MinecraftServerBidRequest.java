@@ -15,9 +15,7 @@ public record MinecraftServerBidRequest(
         @Size(min = 1, max = 128, message = "Хост должен содержать от 1 до 128 символов")
         @NotBlank(message = "Хост не может быть пустым")
         String host,
-
-        @Schema(description = "MC-ник игрока, который станет владельцем сервера", example = "Notch")
-        @Size(min = 1, max = 16, message = "Ник игрока должен содержать от 1 до 16 символов")
-        @NotBlank(message = "Ник владельца не может быть пустым")
-        String ownerUsername
+        Integer port,
+        @NotBlank(message = "Флаг интеграции должен быть указан")
+        Boolean integration
 ) {}

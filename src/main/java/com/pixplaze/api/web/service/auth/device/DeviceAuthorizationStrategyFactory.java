@@ -1,6 +1,8 @@
 package com.pixplaze.api.web.service.auth.device;
 
 import com.pixplaze.api.ext.data.Authority;
+import com.pixplaze.api.ext.data.auth.AuthorizationDetails;
+import com.pixplaze.api.ext.data.auth.AuthorizationToken;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.stereotype.Component;
 
@@ -28,19 +30,19 @@ public class DeviceAuthorizationStrategyFactory {
      * Параметр <T> гарантирует приведение к нужному типу дженерика на вызывающей стороне.
      */
     @SuppressWarnings("unchecked")
-    public <A, T> DeviceAuthorizationStrategy<A, T> of(Authority authority) {
+    public <A extends AuthorizationDetails> DeviceAuthorizationStrategy<A, AuthorizationToken> of(Authority authority) {
         if (authority.from(Authority.Source.MINECRAFT_AUTHORIZED_DEVICE)) {
             if (authority.is(Authority.Role.MINECRAFT_SERVER)) {
-                return (DeviceAuthorizationStrategy<A, T>) strategies.get(MinecraftServerAuthorizationStrategy.class);
+                return (DeviceAuthorizationStrategy<A, AuthorizationToken>) strategies.get(MinecraftServerAuthorizationStrategy.class);
             }
 
             if (authority.is(Authority.Role.MINECRAFT_PLAYER) || authority.is(Authority.Role.MINECRAFT_OPERATOR)) {
-                return (DeviceAuthorizationStrategy<A, T>) strategies.get(MinecraftPlayerAuthorizationStrategy.class);
+                return (DeviceAuthorizationStrategy<A, AuthorizationToken>) strategies.get(MinecraftPlayerAuthorizationStrategy.class);
             }
         }
 
         if (authority.from(Authority.Source.APPLICATION_AUTHORIZED_DEVICE)) {
-            return (DeviceAuthorizationStrategy<A, T>) strategies.get(ProfileAuthorizationStrategy.class);
+            return (DeviceAuthorizationStrategy<A, AuthorizationToken>) strategies.get(ProfileAuthorizationStrategy.class);
         }
 
         throw new IllegalStateException();

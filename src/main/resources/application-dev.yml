@@ -7,9 +7,8 @@ app:
   security:
     auth:
       device:
-        session:
-          expiration.seconds: 300
-          interval.seconds: 5
+        expiration: 5m
+        polling-interval: 5s
       token:
         access.expiration-minutes: 20160
         refresh.expiration.days: 30

@@ -21,11 +21,10 @@ app:
   security:
     auth:
       device:
-        session:
-          expiration.seconds: 300
-          interval.seconds: 5
-          # Срок жизни сессии после grant: одобрённая сессия гаснет в узком окне (bearer-QR обратного логина).
-          grant-expiration.seconds: 15
+        expiration: 5m
+        polling-interval: 5s
+        decision-ttl: 15s
+        verification-uri: ${app.url.app.gateway}/auth
       token:
         access:
           expiration-minutes: 2400

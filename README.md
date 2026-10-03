@@ -86,7 +86,7 @@ mvn -DskipTests package          # → target/pixplaze-web-api-1.0.0.jar
 
 #### 1.4 Собрать runtime-образ из jar
 ```shell
-docker build --platform linux/arm64 -t pixplaze-web-api:latest -- load .
+docker build --platform linux/amd64 -t pixplaze-web-api:latest --load .
 ```
 
 > Если целевая машина той же ОС, что и локальная, можно:

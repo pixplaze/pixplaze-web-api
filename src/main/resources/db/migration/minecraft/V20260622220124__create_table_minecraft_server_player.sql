@@ -1,6 +1,3 @@
--- Членство игрока на сервере (игрок↔сервер). is_operator — оператор ли он на этом сервере,
--- is_owner — владелец. Заполняется при регистрации сервера (владелец/операторы) и при device-входе
--- игрока (обычное членство). Источник ролей профиля и хостов в aud его токена.
 CREATE TABLE minecraft_server_player (
     minecraft_player_uuid UUID REFERENCES minecraft_player(uuid) ON DELETE CASCADE NOT NULL,
     minecraft_server_id BIGINT REFERENCES minecraft_server(id) ON DELETE CASCADE NOT NULL,

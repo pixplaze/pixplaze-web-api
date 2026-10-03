@@ -3,15 +3,17 @@ package com.pixplaze.api.web.controller;
 import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerStateInfo;
 import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServer;
+import com.pixplaze.api.web.data.dto.CreateMinecraftServerRequest;
 import com.pixplaze.api.web.data.dto.MinecraftServerBidRequest;
 import com.pixplaze.api.web.data.dto.MinecraftServerBidResponse;
 import com.pixplaze.api.web.data.dto.MinecraftServerHeartbeatRequest;
 import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
-import com.pixplaze.api.web.data.user.MinecraftPlayerPrincipal;
 import com.pixplaze.api.web.data.user.MinecraftServerPrincipal;
 import com.pixplaze.api.web.service.MinecraftServerBidService;
 import com.pixplaze.api.web.service.MinecraftServerService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -48,6 +50,11 @@ public class MinecraftServerController {
         return minecraftServerService.listServers(search, limit, offset);
     }
 
+    @PostMapping
+    public void createServer(CreateMinecraftServerRequest request) {
+
+    }
+
     @PreAuthorize("permitAll()")
     @GetMapping("/{id}")
     public ResponseEntity<MinecraftServerInfo> getServer(
@@ -80,27 +87,32 @@ public class MinecraftServerController {
     @PreAuthorize("hasRole('MINECRAFT_PLAYER')")
     @PostMapping("/rate/{serverId}")
     public void rate(
-            @AuthenticationPrincipal MinecraftPlayerPrincipal principal,
+            @AuthenticationPrincipal ApplicationClientPrincipal principal,
             @PathVariable Long serverId,
-            @RequestParam int rating
+            @RequestParam @Min(1) @Max(5) int rating
     ) {
-        minecraftServerService.rate(serverId, principal.getUuid(), rating);
+        minecraftServerService.rate(serverId, principal.getId(), rating);
     }
 
     /// Заявка владельца на регистрацию сервера: создаёт заявку и возвращает код для конфига сервера.
     @PostMapping("/bids")
-    public ResponseEntity<MinecraftServerBidResponse> createBid(
+    public ResponseEntity<String> createBid(
             @AuthenticationPrincipal ApplicationClientPrincipal principal,
             @RequestBody @Valid MinecraftServerBidRequest request
     ) {
-        final var result = minecraftServerBidService.createBid(
-                request.name(), request.host(), request.ownerUsername(), principal.getId()
-        );
-        final var bid = result.bid();
-        final var body = new MinecraftServerBidResponse(
-                bid.getId(), bid.getName(), bid.getHost(), bid.getOwnerUsername(), result.code()
-        );
-        return ResponseEntity.status(HttpStatus.CREATED).body(body);
+        if (request.integration()) {
+            final var result = minecraftServerBidService.createBid(
+                    request.name(), request.host(), null, principal.getId()
+            );
+
+            final var bid = result.bid();
+//            final var body = new MinecraftServerBidResponse(
+//                    bid.getId(), bid.getName(), bid.getHost(), bid.getOwnerUsername(), result.code()
+//            );
+            return ResponseEntity.status(HttpStatus.CREATED).body(result.code());
+        }
+        minecraftServerService.pingServer(request.host(), request.port());
+        return ResponseEntity.status(HttpStatus.CREATED).body("");
     }
 
     @PostMapping("/favorite")

@@ -5,7 +5,7 @@ import com.pixplaze.api.ext.data.server.MinecraftServerCoreInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerStateInfo;
 import com.pixplaze.api.web.data.server.MinecraftServerSnapshot;
-import com.pixplaze.api.web.data.server.MinecraftServerListingInfo;
+import com.pixplaze.api.web.service.server.model.MinecraftServerListingInfo;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -36,32 +36,30 @@ public class MinecraftServerListingAssembler {
         final var id = base.getId();
         final var name = base.getName();
         final var host = base.getHost();
-        final var motd = online != null && online.motd() != null ? online.motd() : base.getMotd();
-        final var icon = online != null ? online.faviconBase64() : null;
+        final var motd = online != null ? online.motd() : null;
+        final var icon = online != null ? online.iconBase64() : null;
         final var core = online != null ? new MinecraftServerCoreInfo(online.core(), online.version()) : null;
         final var plugins = plugin != null ? plugin.plugins() : null;
-        final var metadata = plugin != null ? plugin.metadata() : null;
 
         final var rating = listing.rating();
         final var ratingAverage = rating != null && rating.count() > 0 ? rating.average() : null;
         final var ratingCount = rating != null ? rating.count() : 0L;
 
-        return new MinecraftServerInfo(
-                id,
-                name,
-                host,
-                motd,
-                base.getIsLicense(),
-                icon,
-                base.getDescription(),
-                listing.ports(),
-                core,
-                toStateInfo(listing),
-                plugins,
-                metadata,
-                ratingAverage,
-                ratingCount
-        );
+        return MinecraftServerInfo.builder()
+                .id(id)
+                .name(name)
+                .host(host)
+                .motd(motd)
+                .license(base.getIsLicense())
+                .iconBase64(icon)
+                .description(base.getDescription())
+                .ports(listing.ports())
+                .core(core)
+                .state(toStateInfo(listing))
+                .plugins(plugins)
+                .rating(ratingAverage)
+                .ratingCount(ratingCount)
+                .build();
     }
 
     /** Только online-обновляемая часть (для `POST /servers/state`). */
@@ -69,21 +67,21 @@ public class MinecraftServerListingAssembler {
         final var online = listing.online();
         final var plugin = freshPlugin(listing);
 
-        final var stateCode = online != null
-                ? MinecraftServerStateInfo.StateCode.ONLINE
-                : MinecraftServerStateInfo.StateCode.OFFLINE;
+        final var status = online != null
+                ? MinecraftServerStateInfo.Status.ONLINE
+                : MinecraftServerStateInfo.Status.OFFLINE;
         final var players = online != null
                 ? new MinecraftPlayerListInfo(online.playersMax(), online.playersOnline())
                 : null;
 
-        return new MinecraftServerStateInfo(
-                plugin != null ? plugin.tps() : null,
-                online != null ? online.pingMillis() : null,
-                plugin != null ? plugin.uptimeMillis() : null,
-                plugin != null ? plugin.difficulty() : null,
-                stateCode,
-                players
-        );
+        return MinecraftServerStateInfo.builder()
+                .tps(plugin != null ? plugin.tps() : null)
+                .ping(online != null ? online.pingMillis() : null)
+                .uptime(plugin != null ? plugin.uptimeMillis() : null)
+                .difficulty(plugin != null ? plugin.difficulty() : null)
+                .status(status)
+                .players(players)
+                .build();
     }
 
     /// Возвращает plugin-снимок, только если он свежий (иначе {@code null} → Tier-3 скрыт).

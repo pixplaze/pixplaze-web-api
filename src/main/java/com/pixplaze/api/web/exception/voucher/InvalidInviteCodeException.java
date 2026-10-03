@@ -1,6 +1,9 @@
 package com.pixplaze.api.web.exception.voucher;
 
-public class InvalidInviteCodeException extends RuntimeException {
+import com.pixplaze.api.web.exception.http.ForbiddenException;
+
+/// Регистрация закрыта инвайтом / инвайт невалиден → 403 (наследует {@link ForbiddenException}).
+public class InvalidInviteCodeException extends ForbiddenException {
     public InvalidInviteCodeException() {
         this("User registration is restricted by invite code.");
     }

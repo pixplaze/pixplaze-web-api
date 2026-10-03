@@ -45,6 +45,8 @@ src/test/resources/http/
 
 ### Private Data ###
 /src/main/resources/db/migration/repeatable/R__insert_values_voucher_code.sql
+/src/main/resources/db/migration/repeatable/R__insert_values_minecraft_server.sql
+
 .env
 *.pem
 *.der

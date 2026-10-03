@@ -1,7 +1,7 @@
 package com.pixplaze.api.web.service.server;
 
 import com.pixplaze.api.web.data.server.MinecraftServerSnapshot;
-import com.pixplaze.api.web.data.server.MinecraftServerListingInfo;
+import com.pixplaze.api.web.service.server.model.MinecraftServerListingInfo;
 import com.pixplaze.api.web.data.server.ServerRatingAggregate;
 
 import java.util.Collection;

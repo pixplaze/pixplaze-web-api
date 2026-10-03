@@ -1,9 +1,7 @@
 package com.pixplaze.api.web.exception.http;
 
-import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.ResponseStatus;
-
-@ResponseStatus(HttpStatus.NOT_FOUND)
+/// HTTP-семантическое исключение → 404. Статус назначается в {@code ApiExceptionHandler}
+/// (типовой {@code @ExceptionHandler}), а не аннотацией — доменные классы остаются чистыми POJO.
 public class NotFoundException extends RuntimeException {
 
     public NotFoundException() {

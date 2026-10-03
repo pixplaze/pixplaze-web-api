@@ -1,9 +1,8 @@
 package com.pixplaze.api.web.data.server;
 
-public enum
-MinecraftServerStatus {
+public enum MinecraftServerStatus {
     PENDING,
-    ACTIVE,
-    MAINTAIN,
+    ONLINE,
+    OFFLINE,
     BANNED
 }

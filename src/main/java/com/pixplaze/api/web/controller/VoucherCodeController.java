@@ -1,15 +1,10 @@
 package com.pixplaze.api.web.controller;
 
 import com.pixplaze.api.web.data.db.tables.pojos.VoucherCode;
-import com.pixplaze.api.web.data.dto.ErrorResponse;
 import com.pixplaze.api.web.data.voucher.VoucherCodeType;
 import com.pixplaze.api.web.exception.voucher.VoucherCodeValidationException;
-import com.pixplaze.api.web.service.ExceptionHandlerService;
 import com.pixplaze.api.web.service.VoucherCodeService;
-import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -17,7 +12,6 @@ import org.springframework.web.bind.annotation.*;
 @RequiredArgsConstructor
 public class VoucherCodeController {
     private final VoucherCodeService voucherCodeService;
-    private final ExceptionHandlerService exceptionHandlerService;
 
     @PostMapping("/validate")
     public boolean isVoucherCodeValid(@RequestBody VoucherCode voucherCode) {
@@ -51,12 +45,7 @@ public class VoucherCodeController {
 
     @GetMapping("/invite/message/{voucherCode}")
     public String getInviteCodeMessage(@PathVariable String voucherCode) {
+        // VoucherCodeValidationException (→403) обрабатывается централизованно в ApiExceptionHandler.
         return voucherCodeService.load(voucherCode, VoucherCodeType.INVITE).getMessage();
-    }
-
-    @ExceptionHandler(RuntimeException.class)
-    public ResponseEntity<ErrorResponse> handleVoucherCodeValidationException(RuntimeException exception, HttpServletRequest httpServletRequest) {
-        return ResponseEntity.status(HttpStatus.NOT_ACCEPTABLE)
-                .body(exceptionHandlerService.handleException(exception, httpServletRequest));
     }
 }

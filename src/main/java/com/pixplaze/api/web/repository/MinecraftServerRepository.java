@@ -66,14 +66,13 @@ public class MinecraftServerRepository {
                 .fetchOptionalInto(MinecraftServer.class);
     }
 
-    /// Создаёт сервер в статусе ACTIVE (момент успешной регистрации) вместе со строкой состояния.
+    /// Создаёт сервер в статусе ONLINE (момент успешной регистрации) вместе со строкой состояния.
     @Transactional
-    public MinecraftServer createActive(MinecraftServer server) {
+    public MinecraftServer create(MinecraftServer server, MinecraftServerStatus minecraftServerStatus) {
         final var created = Objects.requireNonNull(
                 dslContext.insertInto(MINECRAFT_SERVER)
                         .set(MINECRAFT_SERVER.NAME, server.getName())
                         .set(MINECRAFT_SERVER.HOST, server.getHost())
-                        .set(MINECRAFT_SERVER.MOTD, server.getMotd())
                         .set(MINECRAFT_SERVER.IS_LICENSE, server.getIsLicense())
                         .set(MINECRAFT_SERVER.DESCRIPTION, server.getDescription())
                         .set(MINECRAFT_SERVER.CREATED_AT, OffsetDateTime.now())
@@ -84,7 +83,7 @@ public class MinecraftServerRepository {
 
         dslContext.insertInto(MINECRAFT_SERVER_STATE)
                 .set(MINECRAFT_SERVER_STATE.MINECRAFT_SERVER_ID, created.getId())
-                .set(MINECRAFT_SERVER_STATE.STATUS, MinecraftServerStatus.ACTIVE)
+                .set(MINECRAFT_SERVER_STATE.STATUS, minecraftServerStatus)
                 .execute();
 
         return created;
@@ -110,32 +109,6 @@ public class MinecraftServerRepository {
                 .set(MINECRAFT_SERVER.HOST, host)
                 .where(MINECRAFT_SERVER.ID.eq(id))
                 .execute();
-    }
-
-    public MinecraftServer createIfNotExist(MinecraftServer server) {
-        final var existingServer = findByHost(server.getHost()).orElse(null);
-
-        if (existingServer != null) {
-            return existingServer;
-        }
-
-        final var createdServer = dslContext.insertInto(MINECRAFT_SERVER)
-                .set(MINECRAFT_SERVER.HOST, server.getHost())
-                .set(MINECRAFT_SERVER.MOTD, server.getMotd())
-                .set(MINECRAFT_SERVER.IS_LICENSE, server.getIsLicense())
-                .set(MINECRAFT_SERVER.DESCRIPTION, server.getDescription())
-                .set(MINECRAFT_SERVER.CREATED_AT, OffsetDateTime.now())
-                .onConflict(MINECRAFT_SERVER.HOST)
-                .doNothing()
-                .returning()
-                .fetchOneInto(MinecraftServer.class);
-
-        if (createdServer != null) {
-            return createdServer;
-        }
-
-        // Проиграли гонку: строку вставил конкурентный поток между SELECT и INSERT
-        return findByHost(server.getHost()).orElseThrow(IllegalStateException::new);
     }
 
     /// Привязывает игрока-оператора к серверу ({@code is_operator = true}). Идемпотентна:
@@ -182,7 +155,6 @@ public class MinecraftServerRepository {
             batch.bind(
                     uuid,
                     serverId,
-                    true,
                     uuid.equals(ownerUuid)
             );
         }
@@ -273,12 +245,12 @@ public class MinecraftServerRepository {
 
     /// Голос игрока за сервер: UPSERT по паре (сервер, игрок) — повторный вызов переголосовывает
     /// (обновляет оценку и {@code updated_at}), не создавая второй строки → один голос на игрока.
-    public void upsertRating(Long serverId, UUID playerUuid, int rating) {
+    public void upsertRating(Long serverId, Long profileId, int rating) {
         dslContext.insertInto(MINECRAFT_SERVER_RATING)
                 .set(MINECRAFT_SERVER_RATING.MINECRAFT_SERVER_ID, serverId)
-                .set(MINECRAFT_SERVER_RATING.MINECRAFT_PLAYER_UUID, playerUuid)
+                .set(MINECRAFT_SERVER_RATING.PROFILE_ID, profileId)
                 .set(MINECRAFT_SERVER_RATING.RATING, (short) rating)
-                .onConflict(MINECRAFT_SERVER_RATING.MINECRAFT_SERVER_ID, MINECRAFT_SERVER_RATING.MINECRAFT_PLAYER_UUID)
+                .onConflict(MINECRAFT_SERVER_RATING.MINECRAFT_SERVER_ID, MINECRAFT_SERVER_RATING.PROFILE_ID)
                 .doUpdate()
                 .set(MINECRAFT_SERVER_RATING.RATING, (short) rating)
                 .set(MINECRAFT_SERVER_RATING.UPDATED_AT, OffsetDateTime.now())

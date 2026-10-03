@@ -1,5 +1,6 @@
 package com.pixplaze.api.web.service.auth.device;
 
+import com.pixplaze.api.ext.data.auth.AuthorizationToken;
 import com.pixplaze.api.ext.data.auth.DeviceResponseInfo;
 import com.pixplaze.api.web.data.dto.DeviceAuthorizationDecisionRequest;
 import com.pixplaze.api.web.data.dto.DeviceAuthorizationInfo;
@@ -8,7 +9,7 @@ import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
 public interface DeviceAuthorizationService {
     DeviceResponseInfo authorize(String clientId, String scope, String authorizationDetails);
 
-    Object poll(String clientId, String deviceCode);
+    AuthorizationToken poll(String clientId, String deviceCode);
 
     void approve(DeviceAuthorizationDecisionRequest deviceAuthorizationDecisionRequest, ApplicationClientPrincipal clientPrincipial);
 

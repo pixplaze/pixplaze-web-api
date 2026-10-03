@@ -3,23 +3,32 @@ package com.pixplaze.api.web.service;
 import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerStateInfo;
 import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServer;
+import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServerBid;
+import com.pixplaze.api.web.data.dto.MinecraftServerBidResponse;
 import com.pixplaze.api.web.data.dto.MinecraftServerHeartbeatRequest;
 import com.pixplaze.api.web.data.server.MinecraftServerSnapshot;
 import com.pixplaze.api.web.data.server.MinecraftServerStatus;
 import com.pixplaze.api.web.data.server.ServerRatingAggregate;
-import com.pixplaze.api.web.exception.http.BadRequestException;
+import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
+import com.pixplaze.api.web.data.voucher.VoucherCodeType;
+import com.pixplaze.api.web.exception.MinecraftServerUnavailableException;
 import com.pixplaze.api.web.exception.http.NotFoundException;
+import com.pixplaze.api.web.mapper.MinecraftServerMapper;
 import com.pixplaze.api.web.repository.MinecraftPlayerRepository;
 import com.pixplaze.api.web.repository.MinecraftServerRepository;
 import com.pixplaze.api.web.service.server.MinecraftServerListingAssembler;
 import com.pixplaze.api.web.service.server.MinecraftServerSnapshotStore;
 import com.pixplaze.api.web.util.PagingUtils;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.IOException;
 import java.time.Instant;
 import java.util.*;
+import java.util.function.Supplier;
 
 @Service
 @RequiredArgsConstructor
@@ -28,6 +37,10 @@ public class MinecraftServerService {
     private final MinecraftPlayerRepository minecraftPlayerRepository;
     private final MinecraftServerSnapshotStore minecraftServerSnapshotStore;
     private final MinecraftServerListingAssembler minecraftServerListingAssembler;
+    private final MinecraftServerMonitoringService minecraftServerMonitoringService;
+    private final MinecraftServerMapper minecraftServerMapper;
+    private final MinecraftServerBidService minecraftServerBidService;
+    private final VoucherCodeService voucherCodeService;
 
     /// Страница листинга из материализованного снапшота (без сетевого I/O; тир зависит от online/plugin).
     /// Порядок операций: фильтр по {@code search} → пагинация, чтобы offset/limit считались от совпадений.
@@ -48,11 +61,18 @@ public class MinecraftServerService {
     private static boolean matches(MinecraftServerInfo info, String needle) {
         return contains(info.host(), needle)
                 || contains(info.name(), needle)
+                || containsAvoidSpecialSymbols(info.motd(), needle)
                 || contains(info.description(), needle);
     }
 
     private static boolean contains(String field, String needle) {
-        return field != null && field.toLowerCase().contains(needle);
+        return field != null && field.toLowerCase()
+                .contains(needle);
+    }
+
+    private static boolean containsAvoidSpecialSymbols(String field, String needle) {
+        return field != null && field.toLowerCase().replaceAll("[&§](\\w|\\d)", "") // Очистка от спец. символов (!влияет на производительность)
+                .contains(needle);
     }
 
     /// Один сервер по id из снапшота ({@code null} → 404 на контроллере).
@@ -89,26 +109,18 @@ public class MinecraftServerService {
     /// повторный вызов переголосовывает. Пересчитывает агрегат и кладёт его в снапшот, чтобы
     /// новое среднее подхватилось ближайшим publish-тиком (~5с), не дожидаясь base-sync (~5мин).
     @Transactional
-    public void rate(Long serverId, UUID playerUuid, int rating) {
-        if (rating < 1 || rating > 5) {
-            throw new BadRequestException("Rating must be between 1 and 5");
-        }
+    public void rate(Long serverId, Long profileId, int rating) {
+        // Диапазон 1..5 валидируется на границе контроллера (@Min/@Max → 400 в ApiExceptionHandler).
         if (minecraftServerRepository.findById(serverId).isEmpty()) {
             throw new NotFoundException("Server '%d' not found".formatted(serverId));
         }
-        minecraftServerRepository.upsertRating(serverId, playerUuid, rating);
+        minecraftServerRepository.upsertRating(serverId, profileId, rating);
         minecraftServerSnapshotStore.putRating(serverId, minecraftServerRepository.ratingAggregate(serverId));
     }
 
     /// Агрегаты рейтинга по всем серверам (для base-sync листинга).
     public Map<Long, ServerRatingAggregate> ratingAggregatesByServer() {
         return minecraftServerRepository.ratingAggregatesByServer();
-    }
-
-    public MinecraftServer createIfNotExist(
-            MinecraftServer minecraftServer
-    ) {
-        return minecraftServerRepository.createIfNotExist(minecraftServer);
     }
 
     public boolean isPlayerServerOperator(UUID playerUuid, Long serverId) {
@@ -138,8 +150,12 @@ public class MinecraftServerService {
     }
 
     /// Создаёт сервер в статусе ACTIVE в момент успешной регистрации.
-    public MinecraftServer createActive(MinecraftServer server) {
-        return minecraftServerRepository.createActive(server);
+    public MinecraftServer create(MinecraftServer server) {
+        return minecraftServerRepository.create(server, MinecraftServerStatus.ONLINE);
+    }
+
+    public MinecraftServer create(MinecraftServer server, MinecraftServerStatus minecraftServerStatus) {
+        return minecraftServerRepository.create(server, minecraftServerStatus);
     }
 
     /// Пакетно привязывает операторов; владелец помечается is_owner.
@@ -152,7 +168,7 @@ public class MinecraftServerService {
     }
 
     public void markActive(Long serverId) {
-        minecraftServerRepository.setStatus(serverId, MinecraftServerStatus.ACTIVE);
+        minecraftServerRepository.setStatus(serverId, MinecraftServerStatus.ONLINE);
     }
 
     public void markBanned(Long serverId) {
@@ -186,5 +202,66 @@ public class MinecraftServerService {
 
     public List<MinecraftServer> getFavorite(Long profileId) {
         return minecraftServerRepository.getFavorite(profileId);
+    }
+
+    @Transactional
+    public MinecraftServerBidResponse registerOnlineServer(ApplicationClientPrincipal clientPrincipal, String serverName, String serverHost, Integer serverPort) {
+        final var minecraftServerSnapshot = pingServer(serverHost, serverPort).orElseThrow(this.minecraftServerUnavailableException(serverHost, serverPort));
+        final var minecraftServer = new MinecraftServer()
+                .setName(serverName)
+                .setHost(serverHost);
+
+        create(minecraftServer);
+
+        return new MinecraftServerBidResponse(
+                null,
+                null,
+                null,
+                MinecraftServerInfo.preview(serverName, serverHost, serverPort, minecraftServerSnapshot.iconBase64())
+        );
+    }
+
+    @Transactional
+    public MinecraftServerBidResponse registerPluginServer(ApplicationClientPrincipal clientPrincipal, String serverName, String serverHost, Integer serverPort) {
+        final var minecraftServerSnapshot = pingServer(serverHost, serverPort).orElseThrow(this.minecraftServerUnavailableException(serverHost, serverPort));
+        final var voucherCode = voucherCodeService.issue(VoucherCodeType.INVITE_MINECRAFT_SERVER, 1);
+        final var minecraftServerBid = new MinecraftServerBid()
+                .setName(serverName)
+                .setHost(serverHost)
+                .setVoucherCodeId(voucherCode.getId())
+                .setProfileId(clientPrincipal.getId());
+        final var minecraftServerBidId = minecraftServerBidService.create(minecraftServerBid).getId();
+        return new MinecraftServerBidResponse(
+                minecraftServerBidId,
+                null,
+                voucherCode.getCode(),
+                MinecraftServerInfo.preview(serverName, serverHost, serverPort, minecraftServerSnapshot.iconBase64())
+        );
+    }
+
+    @Transactional
+    public MinecraftServerBidResponse createBid(ApplicationClientPrincipal clientPrincipal, String serverName, String serverHost, Integer serverPort, Boolean serverIntegration) {
+        if (serverIntegration) {
+            return registerOnlineServer(clientPrincipal, serverName, serverHost, serverPort);
+        }
+
+        return registerPluginServer(clientPrincipal, serverName, serverHost, serverPort);
+    }
+
+    public Optional<MinecraftServerSnapshot.Online> pingServer(
+            @Size(min = 1, max = 128, message = "Хост должен содержать от 1 до 128 символов")
+            @NotBlank(message = "Хост не может быть пустым")
+            String host,
+            Integer port
+    ) {
+        try {
+            return Optional.of(minecraftServerMonitoringService.pingOnline(host, port));
+        } catch (IOException e) {
+            return Optional.empty();
+        }
+    }
+
+    private Supplier<MinecraftServerUnavailableException> minecraftServerUnavailableException(String host, Integer port) {
+        return () ->  new MinecraftServerUnavailableException("Could not connect to Minecraft server: '%s:%s'!".formatted(host, port));
     }
 }

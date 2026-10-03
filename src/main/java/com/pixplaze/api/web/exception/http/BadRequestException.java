@@ -1,9 +1,6 @@
 package com.pixplaze.api.web.exception.http;
 
-import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.ResponseStatus;
-
-@ResponseStatus(HttpStatus.BAD_REQUEST)
+/// HTTP-семантическое исключение → 400. Статус назначается в {@code ApiExceptionHandler}.
 public class BadRequestException extends RuntimeException {
 
     public BadRequestException() {

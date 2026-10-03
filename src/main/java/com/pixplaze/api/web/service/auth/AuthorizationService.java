@@ -85,8 +85,9 @@ public class AuthorizationService {
 
     public AuthorizationTokenInfo refresh(String token) {
         final var rotation = refreshTokenService.rotate(token);
-        // aud ≡ targets и переживает ротацию: восстанавливаем сохранённые targets из refresh-токена
-        // (иначе host игрока, не хранимый на entity, терялся бы). Роли/источник — оттуда же. Identity — из БД.
+        // Для НЕ-профильных субъектов (player/server) authority восстанавливаем из refresh-токена:
+        // aud ≡ targets переживает ротацию (host игрока не хранится на entity — иначе терялся бы),
+        // роли/источник — оттуда же, identity — из БД. Профиль ре-деривируется из БД (см. case PROFILE).
         final var authorityBuilder = Authority.as(rotation.roles().toArray(new Authority.Role[0]))
                 .from(rotation.source());
         final var authority = rotation.targets().isEmpty()
@@ -95,8 +96,10 @@ public class AuthorizationService {
 
         final var accessToken = switch (rotation.subjectType()) {
             case PROFILE -> {
+                // Ре-деривация из БД (toApplicationClientPrincipal → applyAuthority): новые/снятые связи
+                // игрок↔сервер отражаются на ближайшем refresh (роль MINECRAFT_PLAYER + хосты в aud),
+                // без полного релогина. НЕ перезатираем authority значением из refresh-токена.
                 final var profile = profileService.toApplicationClientPrincipal(profileService.getById(rotation.profileId()));
-                profile.setAuthority(authority);
                 yield profileAccessTokenService.issue(profile);
             }
             case MINECRAFT_SERVER -> {

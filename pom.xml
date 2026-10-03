@@ -10,7 +10,7 @@
 	</parent>
 	<groupId>com.pixplaze.api</groupId>
 	<artifactId>pixplaze-web-api</artifactId>
-	<version>1.0.0</version>
+	<version>1.0.1</version>
 	<packaging>jar</packaging>
 	<name>pixplaze-web-api</name>
 	<description>Pixplaze web API</description>
@@ -38,7 +38,7 @@
 		<dependency>
 			<groupId>com.pixplaze.api</groupId>
 			<artifactId>pixplaze-ext-api</artifactId>
-			<version>1.0.0</version>
+			<version>1.0.1</version>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>

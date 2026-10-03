@@ -3,41 +3,27 @@ package com.pixplaze.api.web.controller;
 import com.pixplaze.api.ext.data.auth.AuthorizationTokenInfo;
 import com.pixplaze.api.web.data.dto.DeviceAuthorizationDecisionRequest;
 import com.pixplaze.api.web.data.dto.DeviceAuthorizationInfo;
-import com.pixplaze.api.web.data.dto.ErrorResponse;
 import com.pixplaze.api.web.data.dto.SignInRequest;
 import com.pixplaze.api.web.data.dto.SignUpRequest;
 import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
 import com.pixplaze.api.web.exception.auth.DeviceAuthorizationError;
 import com.pixplaze.api.web.exception.auth.DeviceAuthorizationException;
 import com.pixplaze.api.web.exception.auth.InvalidRefreshTokenException;
-import com.pixplaze.api.web.exception.voucher.InvalidInviteCodeException;
-import com.pixplaze.api.web.exception.voucher.VoucherCodeValidationException;
 import com.pixplaze.api.web.mapper.DeviceResponseMapper;
-import com.pixplaze.api.web.service.ExceptionHandlerService;
 import com.pixplaze.api.web.service.auth.MinecraftServerAccessTokenService;
 import com.pixplaze.api.web.service.auth.AuthorizationService;
 import com.pixplaze.api.web.service.auth.device.DeviceAuthorizationService;
-import io.jsonwebtoken.ExpiredJwtException;
-import io.jsonwebtoken.IncorrectClaimException;
-import io.jsonwebtoken.MalformedJwtException;
-import io.jsonwebtoken.MissingClaimException;
-import io.jsonwebtoken.io.DecodingException;
-import io.jsonwebtoken.security.SignatureException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Map;
 
@@ -50,7 +36,6 @@ public class AuthorizationController {
     // Кука refresh-токена scoped на /auth, чтобы ходить и на /auth/refresh, и на /auth/sign-out.
     private static final String REFRESH_COOKIE_PATH = "/auth";
 
-    private final ExceptionHandlerService exceptionHandlerService;
     private final AuthorizationService authorizationService;
     private final DeviceAuthorizationService deviceAuthorizationService;
     private final DeviceResponseMapper deviceResponseMapper;
@@ -59,15 +44,12 @@ public class AuthorizationController {
     @Operation(summary = "Регистрация пользователя")
     @PostMapping("/sign-up")
     public ResponseEntity<AuthorizationTokenInfo> signUp(@RequestBody @Valid SignUpRequest requestInfo) {
-        try {
-            final var responseInfo = authorizationService.signUp(requestInfo);
-            final var responseCookie = authorizationService.createRefreshTokenCookie(responseInfo.refreshToken(), REFRESH_COOKIE_PATH);
-            return ResponseEntity.ok()
-                    .header(HttpHeaders.SET_COOKIE, responseCookie.toString())
-                    .body(responseInfo.safe());
-        } catch (InvalidInviteCodeException e) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, e.getMessage());
-        }
+        // InvalidInviteCodeException (→403) обрабатывается централизованно в ApiExceptionHandler.
+        final var responseInfo = authorizationService.signUp(requestInfo);
+        final var responseCookie = authorizationService.createRefreshTokenCookie(responseInfo.refreshToken(), REFRESH_COOKIE_PATH);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, responseCookie.toString())
+                .body(responseInfo.safe());
     }
 
     @Operation(summary = "Авторизация пользователя")
@@ -116,12 +98,9 @@ public class AuthorizationController {
             @RequestParam(value = "scope", required = false) String scope,
             @RequestParam(value = "authorization_details", required = false) String authorizationDetails
     ) {
-        try {
-            final var deviceResponse = deviceAuthorizationService.authorize(clientId, scope, authorizationDetails);
-            return ResponseEntity.ok(deviceResponseMapper.toDeviceResponse(deviceResponse));
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(exceptionHandlerService.handleException(e, null));
-        }
+        // Ошибки device-authorize (DeviceAuthorizationException) → OAuth-формат в ApiExceptionHandler.
+        final var deviceResponse = deviceAuthorizationService.authorize(clientId, scope, authorizationDetails);
+        return ResponseEntity.ok(deviceResponseMapper.toDeviceResponse(deviceResponse));
     }
 
     /**
@@ -143,10 +122,11 @@ public class AuthorizationController {
     ) {
         return switch (grantType) {
             case "refresh_token" -> refreshTokenGrant(refreshToken);
-            case "urn:ietf:params:oauth:grant-type:device_code" -> ResponseEntity.ok(
-                    deviceResponseMapper.toTokenResponse(
-                            deviceAuthorizationService.poll(clientId, deviceCode),
-                            minecraftServerAccessTokenService.getExpiresInSeconds()));
+            case "urn:ietf:params:oauth:grant-type:device_code" -> {
+                final var tokenInfo = deviceAuthorizationService.poll(clientId, deviceCode);
+                final var response = deviceResponseMapper.toTokenResponse(tokenInfo, minecraftServerAccessTokenService.getExpiresInSeconds());
+                yield ResponseEntity.ok(response);
+            }
             default -> throw new DeviceAuthorizationException(DeviceAuthorizationError.UNSUPPORTED_GRANT_TYPE);
         };
     }
@@ -189,33 +169,6 @@ public class AuthorizationController {
     @GetMapping("/oauth/keys")
     public ResponseEntity<Map<String, Object>> jwks() {
         return ResponseEntity.ok(minecraftServerAccessTokenService.getJwks());
-    }
-
-    @ExceptionHandler({DeviceAuthorizationException.class})
-    public ResponseEntity<Map<String, String>> handleDeviceAuthorizationException(DeviceAuthorizationException e) {
-        final var status = e.getError() == DeviceAuthorizationError.SERVER_ERROR
-                ? HttpStatus.INTERNAL_SERVER_ERROR
-                : HttpStatus.BAD_REQUEST;
-        return ResponseEntity.status(status).body(Map.of("error", e.getError().getCode()));
-    }
-
-    @ExceptionHandler({
-            InvalidRefreshTokenException.class,
-            SignatureException.class,
-            DecodingException.class,
-            MalformedJwtException.class,
-            ExpiredJwtException.class,
-            BadCredentialsException.class
-    })
-    public ResponseEntity<ErrorResponse> handleAuthenticationException(Exception exception, HttpServletRequest httpServletRequest) {
-        final var errorResponseInfo = exceptionHandlerService.handleException(exception, httpServletRequest).withStatus(HttpStatus.UNAUTHORIZED);
-        return ResponseEntity.status(errorResponseInfo.status()).body(errorResponseInfo);
-    }
-
-    @ExceptionHandler({VoucherCodeValidationException.class, IncorrectClaimException.class, MissingClaimException.class})
-    public ResponseEntity<ErrorResponse> handleTokenValidationException(Exception exception, HttpServletRequest httpServletRequest) {
-        final var errorResponseInfo = exceptionHandlerService.handleException(exception, httpServletRequest).withStatus(HttpStatus.FORBIDDEN);
-        return ResponseEntity.status(errorResponseInfo.status()).body(errorResponseInfo);
     }
 }
 

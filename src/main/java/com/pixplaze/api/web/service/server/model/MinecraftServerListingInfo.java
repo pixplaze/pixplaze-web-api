@@ -1,7 +1,10 @@
-package com.pixplaze.api.web.data.server;
+package com.pixplaze.api.web.service.server.model;
 
 import com.pixplaze.api.ext.data.server.MinecraftServerPortsInfo;
 import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServer;
+import com.pixplaze.api.web.data.server.IntegrationType;
+import com.pixplaze.api.web.data.server.MinecraftServerSnapshot;
+import com.pixplaze.api.web.data.server.ServerRatingAggregate;
 
 /**
  * Материализованная запись листинга: базовые данные из БД (+ порты) + опциональные тиры online

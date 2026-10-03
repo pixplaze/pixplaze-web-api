@@ -21,8 +21,15 @@ public class ExceptionHandlerService {
     private final JsonMapper jsonMapper;
     private final ApplicationConfiguration applicationConfiguration;
 
+    /// Строит тело ошибки, самостоятельно выводя статус ({@link #getHttpStatus}). Используется на
+    /// security-пути (entrypoint/accessDenied — статус интринсивен исключению) и как fallback.
     public ErrorResponse handleException(Throwable throwable, HttpServletRequest httpServletRequest) {
-        HttpStatus httpStatus = getHttpStatus(throwable);
+        return handleException(throwable, getHttpStatus(throwable), httpServletRequest);
+    }
+
+    /// Строит тело ошибки с ЯВНО заданным статусом. Используется в {@code ApiExceptionHandler},
+    /// где статус решает типовой {@code @ExceptionHandler}, а не эвристика по типу исключения.
+    public ErrorResponse handleException(Throwable throwable, HttpStatus httpStatus, HttpServletRequest httpServletRequest) {
         int status = httpStatus.value();
         String timestamp = Instant.now().toString();
         String message = httpStatus.getReasonPhrase();
@@ -40,8 +47,17 @@ public class ExceptionHandlerService {
         return new ErrorResponse(status, timestamp, message, trace, path);
     }
 
+    /// Пишет ошибку в сырой {@link HttpServletResponse} (security-путь вне MVC), выводя статус сам.
+    /// Подходит как {@code AuthenticationEntryPoint}/{@code AccessDeniedHandler}: их исключения
+    /// ({@code AuthenticationException}/{@code AccessDeniedException}) корректно мапятся в 401/403.
     public void sendErrorResponseInfo(HttpServletRequest httpServletRequest, HttpServletResponse httpServletResponse, Throwable throwable) throws IOException {
-        final var errorResponseInfo = handleException(throwable, httpServletRequest);
+        sendErrorResponseInfo(httpServletRequest, httpServletResponse, throwable, getHttpStatus(throwable));
+    }
+
+    /// То же, но с ЯВНЫМ статусом — для мест, где тип исключения не несёт статуса (напр. фильтр
+    /// токена: любой сбой парсинга/подписи JWT ⇒ 401), чтобы не тащить {@code ResponseStatusException}.
+    public void sendErrorResponseInfo(HttpServletRequest httpServletRequest, HttpServletResponse httpServletResponse, Throwable throwable, HttpStatus httpStatus) throws IOException {
+        final var errorResponseInfo = handleException(throwable, httpStatus, httpServletRequest);
         try (var writer = httpServletResponse.getWriter()) {
             httpServletResponse.setStatus(errorResponseInfo.status());
             writer.write(stringify(errorResponseInfo));

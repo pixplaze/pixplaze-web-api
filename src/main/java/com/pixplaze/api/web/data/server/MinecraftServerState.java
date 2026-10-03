@@ -9,6 +9,6 @@ public class MinecraftServerState {
     private Double tps;
     private Long ping;
     private Long uptime;
-    private MinecraftServerStateInfo.StateCode state;
+    private MinecraftServerStateInfo.Status state;
     private MinecraftPlayerListInfo players;
 }

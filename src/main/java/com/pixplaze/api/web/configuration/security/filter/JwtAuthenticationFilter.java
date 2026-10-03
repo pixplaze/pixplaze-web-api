@@ -19,7 +19,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 
@@ -65,8 +64,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     request.getMethod(), request.getRequestURI(), resolveClientIpAddress(request),
                     e.getClass().getSimpleName(), e.getMessage());
             response.setContentType("application/json;charset=UTF-8");
-            exceptionHandlerService.sendErrorResponseInfo(request, response,
-                    new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Token is invalid or could not be trusted.", e));
+            // Любой сбой JWT ⇒ 401 в общем ErrorResponse-формате (тот же форматтер, что и MVC-путь).
+            exceptionHandlerService.sendErrorResponseInfo(request, response, e, HttpStatus.UNAUTHORIZED);
         }
     }
 

@@ -15,7 +15,7 @@ public record MinecraftServerSnapshot() {
      * @param version        версия/ядро (как отдаёт status)
      * @param playersOnline  игроков онлайн
      * @param playersMax     слотов
-     * @param faviconBase64  иконка сервера (data-URI/base64), если отдал status
+     * @param iconBase64  иконка сервера (data-URI/base64), если отдал status
      * @param pingMillis     латентность в мс
      * @param fetchedAt      когда снят (для freshness/адаптивной каденции)
      */
@@ -25,7 +25,7 @@ public record MinecraftServerSnapshot() {
             String version,
             Integer playersOnline,
             Integer playersMax,
-            String faviconBase64,
+            String iconBase64,
             Long pingMillis,
             Instant fetchedAt
     ) {}
