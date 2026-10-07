@@ -6,7 +6,8 @@ import com.pixplaze.api.web.data.dto.DeviceAuthorizationInfo;
 import com.pixplaze.api.web.data.dto.SignInRequest;
 import com.pixplaze.api.web.data.dto.SignUpRequest;
 import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
-import com.pixplaze.api.web.exception.auth.DeviceAuthorizationError;
+import com.pixplaze.api.ext.data.oauth.DeviceAuthorizationResponse;
+import com.pixplaze.api.ext.data.oauth.OAuthError;
 import com.pixplaze.api.web.exception.auth.DeviceAuthorizationException;
 import com.pixplaze.api.web.exception.auth.InvalidRefreshTokenException;
 import com.pixplaze.api.web.mapper.DeviceResponseMapper;
@@ -44,7 +45,6 @@ public class AuthorizationController {
     @Operation(summary = "Регистрация пользователя")
     @PostMapping("/sign-up")
     public ResponseEntity<AuthorizationTokenInfo> signUp(@RequestBody @Valid SignUpRequest requestInfo) {
-        // InvalidInviteCodeException (→403) обрабатывается централизованно в ApiExceptionHandler.
         final var responseInfo = authorizationService.signUp(requestInfo);
         final var responseCookie = authorizationService.createRefreshTokenCookie(responseInfo.refreshToken(), REFRESH_COOKIE_PATH);
         return ResponseEntity.ok()
@@ -80,12 +80,12 @@ public class AuthorizationController {
     public ResponseEntity<AuthorizationTokenInfo> refresh(
             @CookieValue(name = "refreshToken") String refreshToken
     ) {
-        final var AuthorizationTokenInfo = authorizationService.refresh(refreshToken);
-        final var responseCookie = authorizationService.createRefreshTokenCookie(AuthorizationTokenInfo.refreshToken(), REFRESH_COOKIE_PATH);
+        final var tokens = authorizationService.refresh(refreshToken);
+        final var responseCookie = authorizationService.createRefreshTokenCookie(tokens.refreshToken(), REFRESH_COOKIE_PATH);
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, responseCookie.toString())
-                .body(AuthorizationTokenInfo.safe());
+                .body(new AuthorizationTokenInfo(tokens.accessToken(), null));
     }
 
     @PostMapping(
@@ -93,14 +93,14 @@ public class AuthorizationController {
             consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE
     )
-    public ResponseEntity<?> authorize(
-            @RequestParam("client_id") String clientId,
+    public ResponseEntity<DeviceAuthorizationResponse> authorize(
+            // Обязательность проверяет сервис: отсутствие — invalid_request в OAuth-формате, а не ErrorResponse Spring.
+            @RequestParam(value = "client_id", required = false) String clientId,
             @RequestParam(value = "scope", required = false) String scope,
             @RequestParam(value = "authorization_details", required = false) String authorizationDetails
     ) {
         // Ошибки device-authorize (DeviceAuthorizationException) → OAuth-формат в ApiExceptionHandler.
-        final var deviceResponse = deviceAuthorizationService.authorize(clientId, scope, authorizationDetails);
-        return ResponseEntity.ok(deviceResponseMapper.toDeviceResponse(deviceResponse));
+        return ResponseEntity.ok(deviceAuthorizationService.authorize(clientId, scope, authorizationDetails));
     }
 
     /**
@@ -114,35 +114,34 @@ public class AuthorizationController {
             consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE
     )
-    public ResponseEntity<?> token(
-            @RequestParam("grant_type") String grantType,
+    public ResponseEntity<Map<String, Object>> token(
+            @RequestParam(value = "grant_type", required = false) String grantType,
             @RequestParam(value = "refresh_token", required = false) String refreshToken,
             @RequestParam(value = "client_id", required = false) String clientId,
             @RequestParam(value = "device_code", required = false) String deviceCode
     ) {
+        if (grantType == null || grantType.isBlank()) {
+            throw new DeviceAuthorizationException(OAuthError.INVALID_REQUEST);
+        }
+
         return switch (grantType) {
             case "refresh_token" -> refreshTokenGrant(refreshToken);
-            case "urn:ietf:params:oauth:grant-type:device_code" -> {
-                final var tokenInfo = deviceAuthorizationService.poll(clientId, deviceCode);
-                final var response = deviceResponseMapper.toTokenResponse(tokenInfo, minecraftServerAccessTokenService.getExpiresInSeconds());
-                yield ResponseEntity.ok(response);
-            }
-            default -> throw new DeviceAuthorizationException(DeviceAuthorizationError.UNSUPPORTED_GRANT_TYPE);
+            case "urn:ietf:params:oauth:grant-type:device_code" ->
+                    ResponseEntity.ok(deviceResponseMapper.toTokenResponse(deviceAuthorizationService.poll(clientId, deviceCode)));
+            default -> throw new DeviceAuthorizationException(OAuthError.UNSUPPORTED_GRANT_TYPE);
         };
     }
 
     /** RFC 6749 §6: обмен сервисного refresh-токена на свежий access (с ротацией refresh). */
-    private ResponseEntity<?> refreshTokenGrant(String refreshToken) {
+    private ResponseEntity<Map<String, Object>> refreshTokenGrant(String refreshToken) {
         if (refreshToken == null || refreshToken.isBlank()) {
-            throw new DeviceAuthorizationException(DeviceAuthorizationError.INVALID_REQUEST);
+            throw new DeviceAuthorizationException(OAuthError.INVALID_REQUEST);
         }
 
         try {
-            // В отличие от веб-refresh приходит параметром (не кукой)
-            final var tokens = authorizationService.refresh(refreshToken);
-            return ResponseEntity.ok(deviceResponseMapper.toTokenResponse(tokens, minecraftServerAccessTokenService.getExpiresInSeconds()));
+            return ResponseEntity.ok(deviceResponseMapper.toTokenResponse(authorizationService.refresh(refreshToken)));
         } catch (InvalidRefreshTokenException e) {
-            throw new DeviceAuthorizationException(DeviceAuthorizationError.INVALID_GRANT);
+            throw new DeviceAuthorizationException(OAuthError.INVALID_GRANT);
         }
     }
 

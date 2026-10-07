@@ -208,9 +208,24 @@
 											<includeExpression>voucher_code\.type</includeExpression>
 										</forcedType>
 										<forcedType>
-											<userType>com.pixplaze.api.web.data.server.MinecraftServerStatus</userType>
-											<converter>new org.jooq.impl.EnumConverter(java.lang.String.class, com.pixplaze.api.web.data.server.MinecraftServerStatus.class)</converter>
-											<includeExpression>minecraft_server_state\.status</includeExpression>
+											<userType>com.pixplaze.api.ext.data.server.MinecraftServerStateInfo.Status</userType>
+											<converter>new org.jooq.impl.EnumConverter(java.lang.String.class, com.pixplaze.api.ext.data.server.MinecraftServerStateInfo.Status.class)</converter>
+											<includeExpression>minecraft_server_state(_history)?\.status</includeExpression>
+										</forcedType>
+										<forcedType>
+											<userType>com.pixplaze.api.ext.data.server.MinecraftServerStateInfo.IntegrationStatus</userType>
+											<converter>new org.jooq.impl.EnumConverter(java.lang.String.class, com.pixplaze.api.ext.data.server.MinecraftServerStateInfo.IntegrationStatus.class)</converter>
+											<includeExpression>minecraft_server_state(_history)?\.integration_status|minecraft_server_bid\.integration</includeExpression>
+										</forcedType>
+										<forcedType>
+											<userType>com.pixplaze.api.ext.data.server.MinecraftServerHostInfo.Type</userType>
+											<converter>new org.jooq.impl.EnumConverter(java.lang.String.class, com.pixplaze.api.ext.data.server.MinecraftServerHostInfo.Type.class)</converter>
+											<includeExpression>minecraft_server_host\.type</includeExpression>
+										</forcedType>
+										<forcedType>
+											<userType>com.pixplaze.api.web.data.server.MinecraftServerBidStatus</userType>
+											<converter>new org.jooq.impl.EnumConverter(java.lang.String.class, com.pixplaze.api.web.data.server.MinecraftServerBidStatus.class)</converter>
+											<includeExpression>minecraft_server_bid\.status</includeExpression>
 										</forcedType>
 										<forcedType>
 											<userType>com.pixplaze.api.web.data.auth.RefreshTokenSubjectType</userType>
@@ -296,4 +311,42 @@
 			</plugin>
 		</plugins>
 	</build>
+
+	<profiles>
+		<!-- Разработка (-Pdev): тестовые seed'ы (db/dev) для плагина Flyway и Spring-профиль dev для запуска и тестов -->
+		<profile>
+			<id>dev</id>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.flywaydb</groupId>
+						<artifactId>flyway-maven-plugin</artifactId>
+						<configuration>
+							<locations combine.children="append">
+								<location>filesystem:src/main/resources/db/dev</location>
+							</locations>
+						</configuration>
+					</plugin>
+					<plugin>
+						<groupId>org.springframework.boot</groupId>
+						<artifactId>spring-boot-maven-plugin</artifactId>
+						<configuration>
+							<profiles>
+								<profile>dev</profile>
+							</profiles>
+						</configuration>
+					</plugin>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-surefire-plugin</artifactId>
+						<configuration>
+							<systemPropertyVariables>
+								<spring.profiles.active>dev</spring.profiles.active>
+							</systemPropertyVariables>
+						</configuration>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+	</profiles>
 </project>

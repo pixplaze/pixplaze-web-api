@@ -1,8 +1,10 @@
 package com.pixplaze.api.web.service.server;
 
-import com.pixplaze.api.web.data.server.MinecraftServerSnapshot;
-import com.pixplaze.api.web.service.server.model.MinecraftServerListingInfo;
+import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServer;
+import com.pixplaze.api.web.data.server.ObservedState;
+import com.pixplaze.api.web.data.server.ServerHosts;
 import com.pixplaze.api.web.data.server.ServerRatingAggregate;
+import com.pixplaze.api.web.service.server.model.MinecraftServerListing;
 import org.springframework.stereotype.Component;
 
 import java.util.Collection;
@@ -24,39 +26,54 @@ import java.util.concurrent.ConcurrentHashMap;
 @Component
 public class InMemoryMinecraftServerSnapshotStore implements MinecraftServerSnapshotStore {
 
-    private final Map<Long, MinecraftServerListingInfo> byId = new ConcurrentHashMap<>();
-    private volatile List<MinecraftServerListingInfo> published = List.of();
+    private final Map<Long, MinecraftServerListing> byId = new ConcurrentHashMap<>();
+    private volatile List<MinecraftServerListing> published = List.of();
 
     @Override
-    public Optional<MinecraftServerListingInfo> find(long serverId) {
+    public Optional<MinecraftServerListing> find(long serverId) {
         return Optional.ofNullable(byId.get(serverId));
     }
 
     @Override
-    public List<MinecraftServerListingInfo> findAll() {
+    public List<MinecraftServerListing> findAll() {
         return published;
     }
 
     @Override
-    public void replaceAll(Collection<MinecraftServerListingInfo> bases) {
+    public void replaceAll(Collection<MinecraftServerListing> bases) {
         final var keep = new HashSet<Long>(bases.size());
         for (final var base : bases) {
             keep.add(base.id());
-            // Сохраняем уже собранные online/plugin существующей записи, обновляя базу/интеграцию/рейтинг из БД.
-            byId.merge(base.id(), base, (existing, incoming) ->
-                    new MinecraftServerListingInfo(incoming.base(), incoming.ports(), incoming.integration(), existing.online(), existing.plugin(), incoming.rating()));
+            byId.merge(base.id(), base, MinecraftServerListing::syncedWith);
         }
         byId.keySet().removeIf(id -> !keep.contains(id));
     }
 
     @Override
-    public void putOnline(long serverId, MinecraftServerSnapshot.Online online) {
-        byId.computeIfPresent(serverId, (id, current) -> current.withOnline(online));
+    public void putServer(MinecraftServerListing listing) {
+        byId.putIfAbsent(listing.id(), listing);
     }
 
     @Override
-    public void putPlugin(long serverId, MinecraftServerSnapshot.Plugin plugin) {
+    public void putPing(long serverId, ObservedState ping) {
+        byId.computeIfPresent(serverId, (id, current) -> current.withPing(ping));
+    }
+
+    @Override
+    public void putPlugin(long serverId, ObservedState plugin) {
         byId.computeIfPresent(serverId, (id, current) -> current.withPlugin(plugin));
+    }
+
+    @Override
+    public void putBase(MinecraftServer base) {
+        byId.computeIfPresent(base.getId(), (id, current) ->
+                base.getUpdatedAt().isBefore(current.base().getUpdatedAt()) ? current : current.withBase(base));
+    }
+
+    @Override
+    public void putHosts(long serverId, ServerHosts hosts) {
+        byId.computeIfPresent(serverId, (id, current) ->
+                current.hosts().isOlderThan(hosts) ? current.withHosts(hosts) : current);
     }
 
     @Override
@@ -68,7 +85,7 @@ public class InMemoryMinecraftServerSnapshotStore implements MinecraftServerSnap
     public void publish() {
         // Стабильный порядок по id → устойчивая пагинация и O(1) чтение.
         published = byId.values().stream()
-                .sorted(Comparator.comparingLong(MinecraftServerListingInfo::id))
+                .sorted(Comparator.comparingLong(MinecraftServerListing::id))
                 .toList();
     }
 }

@@ -1,6 +1,6 @@
 package com.pixplaze.api.web.data.user;
 
-import com.pixplaze.api.ext.data.Authority;
+import com.pixplaze.api.ext.data.auth.Authority;
 import jakarta.annotation.Nonnull;
 import lombok.Getter;
 import lombok.Setter;

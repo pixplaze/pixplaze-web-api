@@ -1,6 +1,6 @@
 package com.pixplaze.api.web.service.auth;
 
-import com.pixplaze.api.ext.data.Authority;
+import com.pixplaze.api.ext.data.auth.Authority;
 import com.pixplaze.api.web.configuration.properties.AccessTokenProperties;
 import com.pixplaze.api.web.data.user.ClientPrincipal;
 import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;

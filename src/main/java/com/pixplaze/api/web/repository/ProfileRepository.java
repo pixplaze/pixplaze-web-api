@@ -9,6 +9,7 @@ import org.springframework.stereotype.Repository;
 import java.util.List;
 import java.util.Optional;
 
+import static com.pixplaze.api.web.data.db.tables.ProfileRoleTable.PROFILE_ROLE;
 import static com.pixplaze.api.web.data.db.tables.ProfileTable.PROFILE;
 
 @Repository
@@ -67,6 +68,14 @@ public class ProfileRepository {
                         .where(PROFILE.NAME.eq(username))
                         .fetchOneInto(Profile.class)
         );
+    }
+
+    /// Выданные профилю роли сверх выводимых ({@code profile_role}), коды {@link com.pixplaze.api.ext.data.auth.Authority.Role#code}.
+    public List<String> findGrantedRoleCodes(Long profileId) {
+        return dslContext.select(PROFILE_ROLE.ROLE_CODE)
+                .from(PROFILE_ROLE)
+                .where(PROFILE_ROLE.PROFILE_ID.eq(profileId))
+                .fetch(PROFILE_ROLE.ROLE_CODE);
     }
 
     public Optional<Profile> findById(Long id) {

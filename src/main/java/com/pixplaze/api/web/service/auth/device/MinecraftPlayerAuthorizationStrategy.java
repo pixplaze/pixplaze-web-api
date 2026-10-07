@@ -1,13 +1,14 @@
 package com.pixplaze.api.web.service.auth.device;
 
+import com.pixplaze.api.ext.data.auth.MinecraftServerTargets;
 import com.pixplaze.api.web.service.auth.device.model.DeviceAuthorizationContext;
-import com.pixplaze.api.ext.data.Authority;
+import com.pixplaze.api.ext.data.auth.Authority;
 import com.pixplaze.api.ext.data.auth.AuthorizationTokenInfo;
 import com.pixplaze.api.ext.data.auth.MinecraftPlayerAuthorizationDetails;
 import com.pixplaze.api.web.data.dto.DeviceAuthorizationInfo;
 import com.pixplaze.api.web.data.user.MinecraftPlayerPrincipal;
 import com.pixplaze.api.web.exception.MinecraftPlayerAlreadyOwnedException;
-import com.pixplaze.api.web.exception.auth.DeviceAuthorizationError;
+import com.pixplaze.api.ext.data.oauth.OAuthError;
 import com.pixplaze.api.web.exception.auth.DeviceAuthorizationException;
 import com.pixplaze.api.web.mapper.MinecraftPlayerMapper;
 import com.pixplaze.api.web.service.MinecraftPlayerService;
@@ -22,17 +23,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
 
-import java.time.Duration;
 import java.util.Objects;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class MinecraftPlayerAuthorizationStrategy implements DeviceAuthorizationStrategy<MinecraftPlayerAuthorizationDetails, AuthorizationTokenInfo> {
-
-    /// Привязанному игроку токен живёт сильно дольше обычного профиля: MC-клиент держит
-    /// долгую сессию, а отзывать её можно через refresh-цепочку.
-    private static final Duration MINECRAFT_PLAYER_ACCESS_TTL = Duration.ofDays(2);
 
     private final RefreshTokenService refreshTokenService;
     private final MinecraftPlayerAccessTokenService minecraftPlayerAccessTokenService;
@@ -45,6 +41,10 @@ public class MinecraftPlayerAuthorizationStrategy implements DeviceAuthorization
     public DeviceAuthorizationInfo describe(DeviceAuthorizationContext<MinecraftPlayerAuthorizationDetails> context) {
         final var details = requireDetails(context);
         final var authority = context.authority();
+        final var authorizationDetails = minecraftPlayerMapper.toAuthorizationDetails(details);
+        // Экрану подтверждения нужен адрес сервера, а игрок присылает только его id.
+        minecraftServerService.findGameHost(details.minecraftServerId())
+                .ifPresent(host -> authorizationDetails.put("host", AddressUtils.hostAndPort(host.address(), host.port())));
 
         return new DeviceAuthorizationInfo(
                 Authority.Role.MINECRAFT_PLAYER.name(),
@@ -52,7 +52,7 @@ public class MinecraftPlayerAuthorizationStrategy implements DeviceAuthorization
                 authority.source().code(),
                 authority.targets(),
                 authority.permissions(),
-                minecraftPlayerMapper.toAuthorizationDetails(details)
+                authorizationDetails
         );
     }
 
@@ -86,23 +86,21 @@ public class MinecraftPlayerAuthorizationStrategy implements DeviceAuthorization
             throw exceptionAccessDenied();
         }
 
+        // Игрок входит только через зарегистрированный незабаненный сервер; проверяем до записей об игроке.
+        final var server = minecraftServerService.findById(details.minecraftServerId())
+                .filter(minecraftServer -> minecraftServer.getBannedAt() == null)
+                .orElseThrow(this::exceptionAccessDenied);
+
         try {
             minecraftPlayerService.upsert(minecraftPlayerMapper.toEntity(details));
             minecraftPlayerService.linkProfile(details.uuid(), approver.getId());
 
-            // Фиксируем членство игрока на сервере (если он зарегистрирован) — ребро игрок↔сервер,
-            // благодаря которому host попадает в aud токена профиля. Незарегистрированный сервер пропускаем.
-            minecraftServerService.findByHost(details.host())
-                    .ifPresentOrElse(server -> {
-                        minecraftServerService.linkPlayer(
-                                server.getId(),
-                                details.uuid(),
-                                Boolean.TRUE.equals(details.isOperator())
-                        );
-                        minecraftServerService.addFavorite(server.getId(), approver.getId());
-                    }, this::exceptionAccessDenied);
+            // Фиксируем членство игрока на сервере — ребро игрок↔сервер, благодаря которому сервер
+            // попадает в aud токена профиля.
+            minecraftServerService.linkPlayer(server.getId(), details.uuid(), Boolean.TRUE.equals(details.isOperator()));
+            minecraftServerService.addFavorite(server.getId(), approver.getId());
 
-            // Роль MINECRAFT_PLAYER + host в aud появляются у ПРОФИЛЯ не здесь, а при следующем выпуске
+            // Роль MINECRAFT_PLAYER + сервер в aud появляются у ПРОФИЛЯ не здесь, а при следующем выпуске
             // его токена (sign-in / refresh): applyAuthority выводит их из персистентных связей выше.
 
             // Субъектный принципал появляется только здесь — после успешной привязки игрока к профилю.
@@ -110,16 +108,16 @@ public class MinecraftPlayerAuthorizationStrategy implements DeviceAuthorization
             subjectPrincipal.setUuid(details.uuid());
             subjectPrincipal.setUsername(details.username());
             subjectPrincipal.setProfileId(approver.getId());
-            subjectPrincipal.setHost(details.host());
-            // aud = host сервера, против которого авторизован игрок (targets ≡ aud).
-            subjectPrincipal.setAuthority(Authority.as(context.authority()).to(details.host()).grant());
+            subjectPrincipal.setMinecraftServerId(server.getId());
+            // aud = сервер, против которого авторизован игрок (targets ≡ aud).
+            subjectPrincipal.setAuthority(Authority.as(context.authority()).to(MinecraftServerTargets.of(server.getId())).grant());
 
-            final var accessToken = minecraftPlayerAccessTokenService.issue(subjectPrincipal, MINECRAFT_PLAYER_ACCESS_TTL);
+            final var accessToken = minecraftPlayerAccessTokenService.issue(subjectPrincipal);
             final var refreshToken = refreshTokenService.issue(subjectPrincipal);
             return new AuthorizationTokenInfo(accessToken, refreshToken);
         } catch (MinecraftPlayerAlreadyOwnedException e) {
             // Игрок уже привязан к ДРУГОМУ профилю — связать с одобряющим нельзя.
-            throw new DeviceAuthorizationException(DeviceAuthorizationError.ACCESS_DENIED);
+            throw new DeviceAuthorizationException(OAuthError.ACCESS_DENIED);
         }
     }
 
@@ -138,19 +136,19 @@ public class MinecraftPlayerAuthorizationStrategy implements DeviceAuthorization
         Objects.requireNonNull(authorizationDetails.uuid(), "'authorizationDetails.uuid' must not be null!");
         Objects.requireNonNull(authorizationDetails.username(), "'authorizationDetails.username' must not be null!");
         Objects.requireNonNull(authorizationDetails.ipAddress(), "'authorizationDetails.ipAddress' must not be null!");
-        // host обязателен: он становится aud токена игрока (targets), без него токен некому адресовать.
-        Objects.requireNonNull(authorizationDetails.host(), "'authorizationDetails.host' must not be null!");
+        // serverId обязателен: из него строится aud токена игрока (targets), без него токен некому адресовать.
+        Objects.requireNonNull(authorizationDetails.minecraftServerId(), "'authorizationDetails.serverId' must not be null!");
     }
 
     private @NonNull DeviceAuthorizationException exceptionInvalidRequest() {
-        return new DeviceAuthorizationException(DeviceAuthorizationError.INVALID_REQUEST);
+        return new DeviceAuthorizationException(OAuthError.INVALID_REQUEST);
     }
 
     private @NonNull DeviceAuthorizationException exceptionInvalidRequest(Exception e) {
-        return new DeviceAuthorizationException(DeviceAuthorizationError.INVALID_REQUEST, e);
+        return new DeviceAuthorizationException(OAuthError.INVALID_REQUEST, e);
     }
 
     private @NonNull DeviceAuthorizationException exceptionAccessDenied() {
-        return new DeviceAuthorizationException(DeviceAuthorizationError.ACCESS_DENIED);
+        return new DeviceAuthorizationException(OAuthError.ACCESS_DENIED);
     }
 }

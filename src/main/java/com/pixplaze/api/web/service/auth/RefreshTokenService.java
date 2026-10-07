@@ -1,9 +1,8 @@
 package com.pixplaze.api.web.service.auth;
 
-import com.pixplaze.api.ext.data.Authority;
+import com.pixplaze.api.ext.data.auth.Authority;
 import com.pixplaze.api.web.data.auth.RefreshTokenSubjectType;
 import com.pixplaze.api.web.data.db.tables.pojos.RefreshToken;
-import com.pixplaze.api.web.data.server.MinecraftServerStatus;
 import com.pixplaze.api.web.data.user.ClientPrincipal;
 import com.pixplaze.api.web.data.user.MinecraftPlayerPrincipal;
 import com.pixplaze.api.web.data.user.MinecraftServerPrincipal;
@@ -93,7 +92,7 @@ public class RefreshTokenService {
                     .setProfileId(profilePrincipal.getId());
         } else if (clientPrincipal instanceof MinecraftServerPrincipal minecraftServerPrincipal) {
             token.setSubjectType(RefreshTokenSubjectType.MINECRAFT_SERVER)
-                    .setMinecraftServerId(minecraftServerPrincipal.getServerId());
+                    .setMinecraftServerId(minecraftServerPrincipal.getMinecraftServerId());
         } else if (clientPrincipal instanceof MinecraftPlayerPrincipal minecraftPlayerPrincipal) {
             final var type = clientPrincipal.getAuthority().is(Authority.Role.MINECRAFT_OPERATOR)
                     ? RefreshTokenSubjectType.MINECRAFT_OPERATOR
@@ -127,7 +126,7 @@ public class RefreshTokenService {
         }
         // Серверный токен забаненного сервера не обновляем и гасим всю его цепочку.
         final var serverId = current.getMinecraftServerId();
-        if (serverId != null && minecraftServerService.getStatus(serverId).orElse(null) == MinecraftServerStatus.BANNED) {
+        if (serverId != null && minecraftServerService.isBanned(serverId)) {
             refreshTokenRepository.revokeAllForServer(serverId);
             throw new InvalidRefreshTokenException("server_banned");
         }
@@ -220,7 +219,7 @@ public class RefreshTokenService {
     public record RotationResult(
             RefreshTokenSubjectType subjectType,
             Long profileId,
-            Long serverId,
+            Long minecraftServerId,
             java.util.UUID playerUuid,
             Authority.Source source,
             List<Authority.Role> roles,

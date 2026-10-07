@@ -1,7 +1,11 @@
 package com.pixplaze.api.web.service.auth;
 
-import com.pixplaze.api.ext.data.Authority;
+import com.pixplaze.api.ext.data.auth.Authority;
+import com.pixplaze.api.ext.data.auth.AuthorizationToken;
 import com.pixplaze.api.ext.data.auth.AuthorizationTokenInfo;
+import com.pixplaze.api.ext.data.auth.VerifiableAuthorizationTokenInfo;
+import com.pixplaze.api.web.data.auth.RefreshTokenSubjectType;
+import com.pixplaze.api.ext.data.auth.MinecraftServerTargets;
 import com.pixplaze.api.web.data.db.tables.pojos.Profile;
 import com.pixplaze.api.web.data.db.tables.pojos.VoucherCode;
 import com.pixplaze.api.web.data.dto.SignInRequest;
@@ -83,10 +87,12 @@ public class AuthorizationService {
         return new AuthorizationTokenInfo(accessToken, refreshToken);
     }
 
-    public AuthorizationTokenInfo refresh(String token) {
+    /// Ротация refresh-токена и перевыпуск access. Серверу вместе с парой снова отдаётся публичный ключ
+    /// подписи ({@link VerifiableAuthorizationTokenInfo}) — так до плагина доходит и новый ключ после ротации.
+    public AuthorizationToken refresh(String token) {
         final var rotation = refreshTokenService.rotate(token);
         // Для НЕ-профильных субъектов (player/server) authority восстанавливаем из refresh-токена:
-        // aud ≡ targets переживает ротацию (host игрока не хранится на entity — иначе терялся бы),
+        // aud ≡ targets переживает ротацию (сервер игрока не хранится в refresh-токене — иначе терялся бы),
         // роли/источник — оттуда же, identity — из БД. Профиль ре-деривируется из БД (см. case PROFILE).
         final var authorityBuilder = Authority.as(rotation.roles().toArray(new Authority.Role[0]))
                 .from(rotation.source());
@@ -103,12 +109,11 @@ public class AuthorizationService {
                 yield profileAccessTokenService.issue(profile);
             }
             case MINECRAFT_SERVER -> {
-                final var server = minecraftServerService.findById(rotation.serverId())
+                final var server = minecraftServerService.findById(rotation.minecraftServerId())
                         .orElseThrow(() -> new InvalidRefreshTokenException("server_not_found"));
                 final var serverPrincipal = new MinecraftServerPrincipal();
-                serverPrincipal.setServerId(server.getId());
+                serverPrincipal.setMinecraftServerId(server.getId());
                 serverPrincipal.setName(server.getName());
-                serverPrincipal.setHost(server.getHost());
                 serverPrincipal.setAuthority(authority);
                 yield minecraftServerAccessTokenService.issue(serverPrincipal);
             }
@@ -119,13 +124,15 @@ public class AuthorizationService {
                 playerPrincipal.setUuid(player.getUuid());
                 playerPrincipal.setUsername(player.getUsername());
                 playerPrincipal.setProfileId(rotation.profileId());
-                // host (= единственный target игрока) восстанавливаем, чтобы попал и в mc.host claim.
-                playerPrincipal.setHost(rotation.targets().isEmpty() ? null : rotation.targets().get(0));
+                // Сервер игрока восстанавливаем из его зоны в targets, чтобы он попал и в mc.sid claim.
+                playerPrincipal.setMinecraftServerId(MinecraftServerTargets.minecraftServerIdOf(rotation.targets()).orElse(null));
                 playerPrincipal.setAuthority(authority);
                 yield minecraftPlayerAccessTokenService.issue(playerPrincipal);
             }
         };
-        return new AuthorizationTokenInfo(accessToken, rotation.refreshToken());
+        return rotation.subjectType() == RefreshTokenSubjectType.MINECRAFT_SERVER
+                ? new VerifiableAuthorizationTokenInfo(accessToken, rotation.refreshToken(), minecraftServerAccessTokenService.getPublicKeyBase64())
+                : new AuthorizationTokenInfo(accessToken, rotation.refreshToken());
     }
 
     /**

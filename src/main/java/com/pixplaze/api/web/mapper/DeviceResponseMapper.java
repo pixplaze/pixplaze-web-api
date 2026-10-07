@@ -1,11 +1,14 @@
 package com.pixplaze.api.web.mapper;
 
-import com.pixplaze.api.ext.data.auth.AuthorizationTokenInfo;
-import com.pixplaze.api.ext.data.auth.DeviceResponseInfo;
+import com.pixplaze.api.ext.data.auth.AuthorizationToken;
 import com.pixplaze.api.ext.data.auth.VerifiableAuthorizationTokenInfo;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.json.JsonMapper;
 
-import java.util.HashMap;
+import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -13,53 +16,36 @@ import java.util.Map;
  * Сериализация ответа token-эндпоинта в формат RFC 6749 §5.1: snake_case-ключи
  * {@code access_token}/{@code token_type}/{@code expires_in}/{@code refresh_token}
  * плюс расширение {@code public_key} для device-flow сервера. Сами record'ы токенов
- * (camelCase) не трогаем — нужный формат собираем здесь, на слое представления.
+ * (camelCase — их же отдаёт вход в приложение) не трогаем — формат собираем здесь, на слое представления.
  * Необязательные поля ({@code refresh_token}, {@code public_key}) опускаются, если null.
  */
 @Component
+@RequiredArgsConstructor
 public class DeviceResponseMapper {
-
-    // MapStruct не умеет писать произвольные ключи Map через @Mapping
-    // (он ищет write accessor у целевого типа), поэтому ключи RFC 8628
-    // раскладываем сами в default-методе. HashMap допускает null в
-    // необязательном verification_uri_complete.
-    public HashMap<String, Object> toDeviceResponse(DeviceResponseInfo deviceResponseInfo) {
-        var map = new HashMap<String, Object>();
-        map.put("device_code", deviceResponseInfo.deviceCode());
-        map.put("user_code", deviceResponseInfo.userCode());
-        map.put("expires_in", deviceResponseInfo.expiresIn());
-        map.put("interval", deviceResponseInfo.interval());
-        map.put("verification_uri", deviceResponseInfo.verificationUri());
-        map.put("verification_uri_complete", deviceResponseInfo.verificationUriComplete());
-        return map;
-    }
 
     private static final String TOKEN_TYPE_BEARER = "Bearer";
 
-    /**
-     * @param tokenInfo результат гранта — {@link AuthorizationTokenInfo} (refresh_token grant
-     *                  и player-стратегия) или {@link VerifiableAuthorizationTokenInfo} (server-стратегия)
-     * @param expiresInSeconds время жизни access-токена в секундах
-     */
-    public Map<String, Object> toTokenResponse(Object tokenInfo, long expiresInSeconds) {
-        if (tokenInfo instanceof AuthorizationTokenInfo info) {
-            return baseResponse(info.accessToken(), info.refreshToken(), expiresInSeconds);
+    private final JsonMapper jsonMapper;
+    private final Clock clock = Clock.systemUTC();
+
+    public Map<String, Object> toTokenResponse(AuthorizationToken token) {
+        final var response = new LinkedHashMap<String, Object>();
+        response.put("access_token", token.accessToken());
+        response.put("token_type", TOKEN_TYPE_BEARER);
+        response.put("expires_in", expiresIn(token.accessToken()));
+        putIfPresent(response, "refresh_token", token.refreshToken());
+        if (token instanceof VerifiableAuthorizationTokenInfo verifiable) {
+            putIfPresent(response, "public_key", verifiable.publicKey());
         }
-        if (tokenInfo instanceof VerifiableAuthorizationTokenInfo info) {
-            final var response = baseResponse(info.accessToken(), info.refreshToken(), expiresInSeconds);
-            putIfPresent(response, "public_key", info.publicKey());
-            return response;
-        }
-        throw new IllegalArgumentException("Unsupported token info type: " + tokenInfo.getClass().getName());
+        return response;
     }
 
-    private Map<String, Object> baseResponse(String accessToken, String refreshToken, long expiresInSeconds) {
-        final var response = new LinkedHashMap<String, Object>();
-        response.put("access_token", accessToken);
-        response.put("token_type", TOKEN_TYPE_BEARER);
-        response.put("expires_in", expiresInSeconds);
-        putIfPresent(response, "refresh_token", refreshToken);
-        return response;
+    /// Секунды до {@code exp} access-токена. Токен только что подписан нами же, поэтому payload читаем
+    /// без проверки подписи: так срок верен для любого субъекта, и типам токенов не нужно его нести.
+    private long expiresIn(String accessToken) {
+        final var payload = accessToken.split("\\.")[1];
+        final var claims = jsonMapper.readTree(new String(Base64.getUrlDecoder().decode(payload), StandardCharsets.UTF_8));
+        return Math.max(0, claims.get("exp").asLong() - clock.instant().getEpochSecond());
     }
 
     private static void putIfPresent(Map<String, Object> map, String key, String value) {

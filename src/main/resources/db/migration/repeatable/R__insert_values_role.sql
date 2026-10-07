@@ -1,7 +1,6 @@
--- Reference data for the `role` table — kept in sync by hand with com.pixplaze.api.ext.data.Authority.Role.
+-- Reference data for the `role` table — kept in sync by hand with com.pixplaze.api.ext.data.auth.Authority.Role.
 -- `name` stores the raw enum name (no ROLE_ prefix; the prefix is a Spring-Security presentation concern).
 -- Repeatable migration: re-runs on every checksum change, hence the idempotent upsert.
--- Runs before R__insert_values_role_permission.sql (Flyway orders repeatables by description, ascending).
 INSERT INTO role (code, name, description) VALUES
     ('RUSR', 'USER',               'Base authenticated application user'),
     ('RADM', 'ADMIN',              'Administrator'),

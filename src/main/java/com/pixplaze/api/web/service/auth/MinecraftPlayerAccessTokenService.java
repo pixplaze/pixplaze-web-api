@@ -1,6 +1,6 @@
 package com.pixplaze.api.web.service.auth;
 
-import com.pixplaze.api.ext.data.Authority;
+import com.pixplaze.api.ext.data.auth.Authority;
 import com.pixplaze.api.web.configuration.properties.AccessTokenProperties;
 import com.pixplaze.api.web.data.user.ClientPrincipal;
 import com.pixplaze.api.web.data.user.MinecraftPlayerPrincipal;
@@ -31,8 +31,8 @@ public class MinecraftPlayerAccessTokenService extends AbstractEsClientTokenServ
     protected void writeIdentityClaims(MinecraftPlayerPrincipal identity, Map<String, Object> claims) {
         final var mc = new HashMap<String, Object>();
         mc.put("uuid", identity.getUuid().toString());
-        if (identity.getHost() != null) {
-            mc.put("host", identity.getHost());
+        if (identity.getMinecraftServerId() != null) {
+            mc.put("sid", identity.getMinecraftServerId());
         }
         claims.put(Authority.Claims.MINECRAFT_CONTEXT, mc);
         if (identity.getProfileId() != null) {
@@ -44,7 +44,7 @@ public class MinecraftPlayerAccessTokenService extends AbstractEsClientTokenServ
         final var mc = AccessTokenClaims.minecraftContext(claims);
         final var player = new MinecraftPlayerPrincipal();
         player.setUuid(UUID.fromString((String) mc.get("uuid")));
-        player.setHost((String) mc.get("host"));
+        player.setMinecraftServerId(AccessTokenClaims.asLong(mc.get("sid")));
         player.setUsername(claims.getSubject());
         player.setProfileId(claims.get(AccessTokenClaims.PID, Long.class));
         player.setAuthority(authority);

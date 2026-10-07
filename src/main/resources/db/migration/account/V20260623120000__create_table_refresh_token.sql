@@ -12,8 +12,11 @@ CREATE TABLE refresh_token (
     minecraft_player_uuid UUID REFERENCES minecraft_player(uuid) ON DELETE CASCADE,
     -- контекст для перевыпуска access-токена (Authority.Source / набор Authority.Role)
     auth_source VARCHAR(8) NOT NULL,
-    -- набор ролей как CSV коротких кодов (RU,RMP,RMO,RMS)
+    -- набор ролей как CSV кодов Authority.Role#code (RUSR,RADM,RSYS,RMCP,RMCO,RMCS)
     auth_roles VARCHAR(64) NOT NULL,
+    -- аудитория токена (aud == Authority.targets()) как CSV зон: gateway и идентификаторы серверов;
+    -- реплеится в новый access-токен при ротации
+    auth_targets VARCHAR(512) NOT NULL DEFAULT '',
     issued_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
     last_used_at TIMESTAMP WITH TIME ZONE,

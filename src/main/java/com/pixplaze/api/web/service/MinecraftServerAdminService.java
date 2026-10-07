@@ -15,11 +15,11 @@ public class MinecraftServerAdminService {
     private final MinecraftServerService minecraftServerService;
     private final RefreshTokenService refreshTokenService;
 
-    /// Перманентный бан сервера по его identity: статус BANNED + отзыв всех refresh-токенов.
+    /// Перманентный бан сервера по его identity: отметка {@code banned_at} + отзыв всех refresh-токенов.
     /// Дальнейшая авторизация и ротация для этого id невозможны, с любого host/имени.
     @Transactional
     public void ban(Long serverId) {
-        minecraftServerService.markBanned(serverId);
+        minecraftServerService.ban(serverId);
         refreshTokenService.revokeAllForServer(serverId);
     }
 }

@@ -25,8 +25,12 @@ public class VoucherCodeService {
     private final SecureRandom secureRandom = new SecureRandom();
     private final VoucherCodeRepository voucherCodeRepository;
 
-    public Optional<VoucherCode> getByCode(String code) {
+    public Optional<VoucherCode> findByCode(String code) {
         return voucherCodeRepository.getByCode(code);
+    }
+
+    public Optional<VoucherCode> findById(Long id) {
+        return voucherCodeRepository.findById(id);
     }
 
     /// Выпускает новый ваучер с уникальным сгенерированным кодом и возвращает его (с проставленным id).
@@ -36,7 +40,7 @@ public class VoucherCodeService {
                 .setCode(code)
                 .setType(type)
                 .setActivationsLimit(activationsLimit));
-        return getByCode(code)
+        return findByCode(code)
                 .orElseThrow(() -> new IllegalStateException("Just created voucher code not found: " + code));
     }
 
@@ -44,7 +48,7 @@ public class VoucherCodeService {
         String code;
         do {
             code = generateCode();
-        } while (getByCode(code).isPresent());
+        } while (findByCode(code).isPresent());
         return code;
     }
 
@@ -90,13 +94,13 @@ public class VoucherCodeService {
     /// @return {@link VoucherCode} if validation successful,
     /// otherwise throws {@link VoucherCodeValidationException}
     public @NonNull VoucherCode load(String code) throws VoucherCodeValidationException {
-        final var voucherCode = getByCode(validate(code))
+        final var voucherCode = findByCode(validate(code))
                 .orElseThrow(onVoucherCodeIsNotExistException(code));
         return validate(voucherCode, voucherCode.getType());
     }
 
     public @NonNull VoucherCode load(String code, VoucherCodeType type) throws VoucherCodeValidationException {
-        final var voucherCode = getByCode(validate(code))
+        final var voucherCode = findByCode(validate(code))
                 .orElseThrow(onVoucherCodeIsNotExistException(code));
         return validate(voucherCode, type);
     }

@@ -3,8 +3,11 @@ package com.pixplaze.api.web.service.api.server;
 import com.pixplaze.api.ext.MinecraftServerApi;
 import com.pixplaze.api.ext.data.player.MinecraftPlayerInfo;
 import com.pixplaze.api.ext.data.plugin.MinecraftPluginInfo;
+import com.pixplaze.api.ext.data.server.MinecraftServerHostInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerStateInfo;
+import com.pixplaze.api.web.exception.MinecraftServerUnavailableException;
+import com.pixplaze.api.web.util.AddressUtils;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
@@ -12,7 +15,6 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import java.time.Duration;
 import java.util.List;
-import java.util.Objects;
 
 public class MinecraftServerApiService implements MinecraftServerApi {
 
@@ -108,9 +110,10 @@ public class MinecraftServerApiService implements MinecraftServerApi {
                 .body(ParameterizedTypeReference.forType(MinecraftPlayerInfo.class));
     }
 
+    /// База API плагина — адрес типа API; без него к плагину не обратиться.
     private String buildApiBaseUrl(MinecraftServerInfo pixplazeServerInfo) {
-        final var hostPrefix = pixplazeServerInfo.host();
-        final var portSuffix = Objects.nonNull(pixplazeServerInfo.ports().java()) ? ":" + pixplazeServerInfo.ports().java() : "";
-        return "http://" + hostPrefix + portSuffix;
+        final var api = pixplazeServerInfo.host(MinecraftServerHostInfo.Type.API)
+                .orElseThrow(() -> new MinecraftServerUnavailableException(pixplazeServerInfo));
+        return "http://" + AddressUtils.hostAndPort(api.address(), api.port());
     }
 }

@@ -1,8 +1,11 @@
 package com.pixplaze.api.web.service.auth.device;
 
-import com.pixplaze.api.ext.data.Authority;
+import com.pixplaze.api.ext.data.auth.Authority;
 import com.pixplaze.api.ext.data.auth.AuthorizationDetails;
 import com.pixplaze.api.ext.data.auth.AuthorizationToken;
+
+import com.pixplaze.api.ext.data.oauth.OAuthError;
+import com.pixplaze.api.web.exception.auth.DeviceAuthorizationException;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.stereotype.Component;
 
@@ -41,10 +44,12 @@ public class DeviceAuthorizationStrategyFactory {
             }
         }
 
-        if (authority.from(Authority.Source.APPLICATION_AUTHORIZED_DEVICE)) {
+        // Только USER: стратегия профиля выдаёт одобрившему запрошенную роль.
+        if (authority.from(Authority.Source.APPLICATION_AUTHORIZED_DEVICE) && authority.is(Authority.Role.USER)) {
             return (DeviceAuthorizationStrategy<A, AuthorizationToken>) strategies.get(ProfileAuthorizationStrategy.class);
         }
 
-        throw new IllegalStateException();
+        // Scopes отсекает неподдерживаемые сочетания раньше; здесь — страховка.
+        throw new DeviceAuthorizationException(OAuthError.INVALID_SCOPE);
     }
 }

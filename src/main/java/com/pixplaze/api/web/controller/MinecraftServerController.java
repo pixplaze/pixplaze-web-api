@@ -3,10 +3,9 @@ package com.pixplaze.api.web.controller;
 import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerStateInfo;
 import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServer;
-import com.pixplaze.api.web.data.dto.CreateMinecraftServerRequest;
+import com.pixplaze.api.web.data.dto.MinecraftServerBidInfo;
 import com.pixplaze.api.web.data.dto.MinecraftServerBidRequest;
 import com.pixplaze.api.web.data.dto.MinecraftServerBidResponse;
-import com.pixplaze.api.web.data.dto.MinecraftServerHeartbeatRequest;
 import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
 import com.pixplaze.api.web.data.user.MinecraftServerPrincipal;
 import com.pixplaze.api.web.service.MinecraftServerBidService;
@@ -23,6 +22,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/servers")
@@ -50,11 +50,6 @@ public class MinecraftServerController {
         return minecraftServerService.listServers(search, limit, offset);
     }
 
-    @PostMapping
-    public void createServer(CreateMinecraftServerRequest request) {
-
-    }
-
     @PreAuthorize("permitAll()")
     @GetMapping("/{id}")
     public ResponseEntity<MinecraftServerInfo> getServer(
@@ -63,23 +58,23 @@ public class MinecraftServerController {
         return ResponseEntity.ofNullable(minecraftServerService.getServerInfo(id));
     }
 
-    /// Освежение online-данных: веб-апп шлёт id видимых серверов → только их {@link MinecraftServerStateInfo}
-    /// из снапшота (без блокирующего on-demand fetch). Неизвестные id опускаются.
+    /// Освежение состояния: веб-апп шлёт id видимых серверов → их {@link MinecraftServerStateInfo} из снапшота
+    /// (без блокирующего on-demand fetch), каждое со своим {@code minecraftServerId}. Неизвестные id опускаются.
     @PreAuthorize("permitAll()")
     @PostMapping("/state")
-    public Map<Long, MinecraftServerStateInfo> getServersState(@RequestBody List<Long> serverIds) {
+    public List<MinecraftServerStateInfo> getServersState(@RequestBody List<Long> serverIds) {
         return minecraftServerService.getServerStates(serverIds);
     }
 
-    /// Tier-3 push: сервер с нашим плагином присылает своё состояние под MAD-токеном. Identity сервера —
-    /// из токена, не из тела. Кладётся в снапшот и отдаётся в листинге до протухания (TTL).
+    /// Heartbeat плагина ({@link MinecraftServerInfo#heartbeat}) под MAD-токеном сервера. Identity сервера —
+    /// из токена, не из тела; из тела берётся только то, за что отвечает плагин (состояние, плагины, лицензия).
     @PreAuthorize("hasRole('MINECRAFT_SERVER')")
     @PostMapping("/heartbeat")
     public void heartbeat(
             @AuthenticationPrincipal MinecraftServerPrincipal principal,
-            @RequestBody MinecraftServerHeartbeatRequest request
+            @RequestBody MinecraftServerInfo heartbeat
     ) {
-        minecraftServerService.handleHeartbeat(principal.getServerId(), request);
+        minecraftServerService.handleHeartbeat(principal.getMinecraftServerId(), heartbeat);
     }
 
     /// Игрок оценивает сервер (1..5). Identity голосующего — из токена, не из тела: один голос
@@ -94,25 +89,35 @@ public class MinecraftServerController {
         minecraftServerService.rate(serverId, principal.getId(), rating);
     }
 
-    /// Заявка владельца на регистрацию сервера: создаёт заявку и возвращает код для конфига сервера.
+    /// Заявка владельца на регистрацию сервера: возвращает код заявки и превью сервера. Без плагина
+    /// сервер обязан отвечать на пинг (код подтверждается через его MOTD); с плагином пинг нужен только
+    /// для иконки в превью, и недоступный сервер её просто не получит.
     @PostMapping("/bids")
-    public ResponseEntity<String> createBid(
+    public ResponseEntity<MinecraftServerBidResponse> createBid(
             @AuthenticationPrincipal ApplicationClientPrincipal principal,
             @RequestBody @Valid MinecraftServerBidRequest request
     ) {
-        if (request.integration()) {
-            final var result = minecraftServerBidService.createBid(
-                    request.name(), request.host(), null, principal.getId()
-            );
+        final var integration = Boolean.TRUE.equals(request.isIntegration())
+                ? MinecraftServerStateInfo.IntegrationStatus.PLUGIN
+                : MinecraftServerStateInfo.IntegrationStatus.NATIVE;
 
-            final var bid = result.bid();
-//            final var body = new MinecraftServerBidResponse(
-//                    bid.getId(), bid.getName(), bid.getHost(), bid.getOwnerUsername(), result.code()
-//            );
-            return ResponseEntity.status(HttpStatus.CREATED).body(result.code());
-        }
-        minecraftServerService.pingServer(request.host(), request.port());
-        return ResponseEntity.status(HttpStatus.CREATED).body("");
+        final var online = integration == MinecraftServerStateInfo.IntegrationStatus.NATIVE
+                ? Optional.of(minecraftServerService.requireOnline(request.host(), request.port()))
+                : minecraftServerService.pingServer(request.host(), request.port());
+
+        final var result = minecraftServerBidService.createBid(
+                request.name(), request.host(), request.port(), request.ownerUsername(), integration, principal.getId()
+        );
+        final var preview = MinecraftServerInfo.preview(
+                request.name(), request.host(), request.port(), online.map(MinecraftServerInfo::iconBase64).orElse(null)
+        );
+        return ResponseEntity.status(HttpStatus.CREATED).body(new MinecraftServerBidResponse(result.code(), preview));
+    }
+
+    /// Заявки текущего пользователя, новые первыми: статус, код и срок открытых.
+    @GetMapping("/bids")
+    public List<MinecraftServerBidInfo> getMyBids(@AuthenticationPrincipal ApplicationClientPrincipal principal) {
+        return minecraftServerBidService.findInfosOf(principal.getId());
     }
 
     @PostMapping("/favorite")

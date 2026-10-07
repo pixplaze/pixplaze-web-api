@@ -1,7 +1,0 @@
-CREATE TABLE minecraft_project (
-    id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    name VARCHAR(64) NOT NULL,
-    description TEXT,
-    host VARCHAR(64) NOT NULL,
-    port INT NOT NULL CHECK (port BETWEEN 0 AND 65536) DEFAULT 25565
-);

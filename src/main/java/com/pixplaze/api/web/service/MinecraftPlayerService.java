@@ -45,9 +45,9 @@ public class MinecraftPlayerService {
         return minecraftPlayerRepository.findLinkedByProfileId(profileId);
     }
 
-    /// Хосты серверов, где состоят связанные с профилем игроки (для targets/aud токена профиля).
-    public List<String> findServerHostsByProfileId(Long profileId) {
-        return minecraftPlayerRepository.findServerHostsByProfileId(profileId);
+    /// Id серверов, где состоят связанные с профилем игроки (для targets/aud токена профиля).
+    public List<Long> findServerIdsByProfileId(Long profileId) {
+        return minecraftPlayerRepository.findServerIdsByProfileId(profileId);
     }
 
     public boolean existByUuid(UUID uuid) {

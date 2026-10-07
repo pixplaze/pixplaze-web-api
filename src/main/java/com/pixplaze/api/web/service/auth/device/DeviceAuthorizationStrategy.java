@@ -2,7 +2,7 @@ package com.pixplaze.api.web.service.auth.device;
 
 import com.pixplaze.api.ext.data.auth.AuthorizationToken;
 import com.pixplaze.api.web.service.auth.device.model.DeviceAuthorizationContext;
-import com.pixplaze.api.ext.data.Authority;
+import com.pixplaze.api.ext.data.auth.Authority;
 import com.pixplaze.api.ext.data.auth.AuthorizationDetails;
 import com.pixplaze.api.web.data.dto.DeviceAuthorizationInfo;
 import com.pixplaze.api.web.exception.auth.DeviceAuthorizationException;

@@ -30,7 +30,7 @@ public abstract class AbstractClientTokenService<E extends ClientPrincipal> exte
         return identity.getName();
     }
 
-    /// {@code aud} токена ≡ {@link com.pixplaze.api.ext.data.Authority#targets()} принципала.
+    /// {@code aud} токена ≡ {@link com.pixplaze.api.ext.data.auth.Authority#targets()} принципала.
     /// Единый источник аудитории: она проставляется в момент выдачи (host игрока, gateway+host
     /// сервера, gateway+хосты-операторские у профиля) и переживает ротацию (auth_targets хранится
     /// в refresh-токене и реплеится). Поэтому отдельных override'ов аудитории у подклассов нет.

@@ -1,8 +1,9 @@
 package com.pixplaze.api.web.service;
 
-import com.pixplaze.api.ext.data.Authority;
+import com.pixplaze.api.ext.data.auth.Authority;
 import com.pixplaze.api.ext.data.player.MinecraftPlayerInfo;
 import com.pixplaze.api.web.configuration.security.SecurityConfiguration;
+import com.pixplaze.api.ext.data.auth.MinecraftServerTargets;
 import com.pixplaze.api.web.data.db.tables.pojos.MinecraftPlayer;
 import com.pixplaze.api.web.data.db.tables.pojos.Profile;
 import com.pixplaze.api.web.data.dto.ProfileInfo;
@@ -125,8 +126,9 @@ public class ProfileService {
 
     /// Собирает authority профиля (source=AAD): роли и targets (≡ aud).
     /// Роли: всегда {@code USER}; есть связанный игрок ⇒ {@code +MINECRAFT_PLAYER}; есть оператор
-    /// хотя бы на одном сервере ⇒ {@code +MINECRAFT_OPERATOR}.
-    /// Targets: всегда api-gateway (профиль ходит в BFF) + хосты серверов, где состоят его игроки
+    /// хотя бы на одном сервере ⇒ {@code +MINECRAFT_OPERATOR}; плюс выданные вручную ({@code profile_role},
+    /// например {@code ADMIN}).
+    /// Targets: всегда api-gateway (профиль ходит в BFF) + зоны серверов, где состоят его игроки
     /// (членство minecraft_server_player; MC валидирует токен профиля напрямую).
     private void applyAuthority(ApplicationClientPrincipal principal) {
         final var players = principal.getPlayers();
@@ -140,10 +142,19 @@ public class ProfileService {
             }
         }
 
+        if (principal.getId() != null) {
+            profileRepository.findGrantedRoleCodes(principal.getId()).stream()
+                    .map(Authority.Role::of)
+                    .filter(role -> !roles.contains(role))
+                    .forEach(roles::add);
+        }
+
         final var targets = new ArrayList<String>();
         targets.add(apiGateway);
         if (principal.getId() != null) {
-            targets.addAll(minecraftPlayerService.findServerHostsByProfileId(principal.getId()));
+            minecraftPlayerService.findServerIdsByProfileId(principal.getId()).stream()
+                    .map(MinecraftServerTargets::of)
+                    .forEach(targets::add);
         }
 
         principal.setAuthority(Authority.as(roles.toArray(new Authority.Role[0]))

@@ -1,7 +1,7 @@
 package com.pixplaze.api.web.service;
 
-import com.pixplaze.api.web.data.server.MinecraftServerSnapshot;
-import com.pixplaze.api.web.data.server.RawMinecraftServer;
+import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
+import com.pixplaze.api.web.configuration.json.MinecraftStatusParser;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -14,7 +14,6 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
 
 @Slf4j
 @Service
@@ -38,10 +37,10 @@ public class MinecraftServerMonitoringService {
     }
 
     /**
-     * Tier-2: снимает online-данные по протоколу (status+ping) и мапит в {@link MinecraftServerSnapshot.Online}.
-     * Бросает {@link IOException} при недоступности/таймауте/протокольной ошибке.
+     * Пинг по протоколу Minecraft (status + ping): описание сервера (motd, иконка, ядро) и часть состояния
+     * от пинга (задержка, игроки). Бросает {@link IOException} при недоступности, таймауте или ошибке протокола.
      */
-    public MinecraftServerSnapshot.Online pingOnline(String host, int port) throws IOException {
+    public MinecraftServerInfo ping(String host, int port) throws IOException {
         try (Socket socket = new Socket()) {
             socket.connect(new InetSocketAddress(host, port), CONNECT_TIMEOUT_MS);
             socket.setSoTimeout(READ_TIMEOUT_MS);
@@ -64,18 +63,8 @@ public class MinecraftServerMonitoringService {
             writePacket(out, buffer);
             final var ping = readPingResponse(in);
 
-            final var raw = jsonMapper.readValue(json, RawMinecraftServer.class);
-            return toOnlineSnapshot(raw, ping);
+            return MinecraftStatusParser.parse(jsonMapper.readTree(json), ping);
         }
-    }
-
-    private static MinecraftServerSnapshot.Online toOnlineSnapshot(RawMinecraftServer raw, long ping) {
-        final var players = raw.getState() != null ? raw.getState().getPlayers() : null;
-        final var online = players != null ? players.online() : null;
-        final var max = players != null ? players.max() : null;
-        final var core = raw.getCore() != null ? raw.getCore().getName() : null;
-        final var version = raw.getCore() != null ? raw.getCore().getVersion() : null;
-        return new MinecraftServerSnapshot.Online(raw.getMotd(), core, version, online, max, raw.getFavicon(), ping, Instant.now());
     }
 
     private static void writeHandshake(ByteBuffer buffer, String host, int port) {

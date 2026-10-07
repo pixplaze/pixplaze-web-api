@@ -1,7 +1,7 @@
 package com.pixplaze.api.web.service;
 
 import com.pixplaze.api.web.configuration.ApplicationConfiguration;
-import com.pixplaze.api.web.data.dto.ErrorResponse;
+import com.pixplaze.api.ext.data.ErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -36,12 +36,11 @@ public class ExceptionHandlerService {
         String trace = null;
         String path = null;
 
+        // Вне dev — только фраза статуса: текст исключения (парсер JWT, Jackson, SQL) раскрывает устройство сервиса.
         if (applicationConfiguration.isDevelopment()) {
             message = getDetailedOrDefaultMessage(throwable, message);
             trace = getStackTrace(throwable);
             path = getPathOrDefault(throwable, httpServletRequest == null ? null : httpServletRequest.getRequestURI());
-        } else if (httpStatus.is4xxClientError()) {
-            message = getDetailedOrDefaultMessage(throwable, message);
         }
 
         return new ErrorResponse(status, timestamp, message, trace, path);

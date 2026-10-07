@@ -1,23 +1,26 @@
 package com.pixplaze.api.web.service.server;
 
-import com.pixplaze.api.ext.data.server.MinecraftServerPortsInfo;
+import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
+import com.pixplaze.api.ext.data.server.MinecraftServerStateInfo;
+import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServerState;
 import com.pixplaze.api.web.data.server.*;
 import com.pixplaze.api.web.service.MinecraftServerMonitoringService;
 import com.pixplaze.api.web.service.MinecraftServerService;
-import com.pixplaze.api.web.service.server.model.MinecraftServerListingInfo;
+import com.pixplaze.api.web.service.server.model.MinecraftServerListing;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Collectors;
 
 /**
  * Фоновая сборка материализованного снапшота листинга (write-side): весь сетевой I/O — здесь,
@@ -41,9 +44,11 @@ public class MinecraftServerListingRefreshService {
     private final MinecraftServerSnapshotStore store;
     private final MinecraftServerPingThrottle throttle;
     private final ExecutorService serverFetchExecutor;
+    private final MinecraftServerStateRecorder stateRecorder;
 
-    /// Кэш адресов для пинга; обновляется в syncBase, читается в pingTick (без DB-хита каждый тик).
-    private volatile List<ServerPingTarget> pingTargets = List.of();
+    /// Сохранённое онлайн-состояние старше этого после рестарта не показываем: сервер мог давно упасть.
+    @Value("${app.servers.warm-start.max-age:10m}")
+    private Duration warmStartMaxAge;
 
     @Scheduled(
             fixedDelayString = "${app.servers.sync.millis:300000}",
@@ -51,21 +56,24 @@ public class MinecraftServerListingRefreshService {
     )
     public void syncBase() {
         try {
-            final var targets = minecraftServerService.findPingTargets();
-            final Map<Long, Integer> portById = targets.stream()
-                    .collect(Collectors.toMap(ServerPingTarget::serverId, ServerPingTarget::port, (a, b) -> a));
+            final var hostsById = minecraftServerService.findAllHosts();
+            final var stateById = minecraftServerService.findAllStates();
             final var ratingById = minecraftServerService.ratingAggregatesByServer();
+            final var now = Instant.now();
 
             final var listed = minecraftServerService.findAllListed().stream()
-                    // Фаза 3: интеграция ещё не в БД → все NONE. Флаг PLUGIN появится в фазе 4.
-                    .map(server -> new MinecraftServerListingInfo(
-                            server,
-                            new MinecraftServerPortsInfo(portById.getOrDefault(server.getId(), 25565)),
-                            IntegrationType.ONLINE, null, null,
-                            ratingById.getOrDefault(server.getId(), ServerRatingAggregate.EMPTY)))
+                    .map(server -> {
+                        final var state = stateById.get(server.getId());
+                        return MinecraftServerListing.of(
+                                server,
+                                hostsById.getOrDefault(server.getId(), ServerHosts.EMPTY),
+                                state != null ? state.getIntegrationStatus() : MinecraftServerStateInfo.IntegrationStatus.NATIVE,
+                                warmPing(state, now),
+                                ratingById.getOrDefault(server.getId(), ServerRatingAggregate.EMPTY));
+                    })
                     .toList();
+            // Новые записи берут прогретую часть пинга из БД; у известных стор сохраняет собранное в памяти.
             store.replaceAll(listed);
-            pingTargets = targets;
             store.publish();
             log.debug("Server base synced: {} listed servers", listed.size());
         } catch (Exception e) {
@@ -78,7 +86,7 @@ public class MinecraftServerListingRefreshService {
             initialDelayString = "${app.servers.ping-tick.initial-millis:10000}"
     )
     public void pingTick() {
-        final var targets = throttle.selectDue(pingTargets);
+        final var targets = throttle.selectDue(pingTargets());
         if (targets.isEmpty()) {
             return;
         }
@@ -92,8 +100,19 @@ public class MinecraftServerListingRefreshService {
                 .map(target -> CompletableFuture
                         .supplyAsync(() -> ping(target), serverFetchExecutor)
                         // Логирование — на уровне CF: ping пробрасывает причину, ошибку видим здесь.
-                        .whenComplete((online, error) -> {
-                            store.putOnline(target.serverId(), online);
+                        .whenComplete((pinged, error) -> {
+                            final var previous = store.find(target.minecraftServerId()).orElse(null);
+                            final var part = pinged != null ? pinged.state() : MinecraftServerStates.offline();
+                            store.putPing(target.minecraftServerId(), new ObservedState(
+                                    MinecraftServerStateInfo.builder(part).minecraftServerId(target.minecraftServerId()).build(),
+                                    Instant.now()));
+                            if (pinged != null) {
+                                minecraftServerService.updatePingDescription(target.minecraftServerId(), pinged);
+                            }
+                            // Первый пинг запуска или смена online/offline — внеочередной замер в БД.
+                            if (previous != null && (!previous.pinged() || previous.isPingOnline() != (pinged != null))) {
+                                stateRecorder.record(target.minecraftServerId());
+                            }
                             if (error == null) {
                                 throttle.recordSuccess(target);
                                 log.trace("Pinged {}:{} ok", target.host(), target.port());
@@ -122,11 +141,37 @@ public class MinecraftServerListingRefreshService {
         store.publish();
     }
 
-    /// Один пинг. Причину НЕ глушим — пробрасываем в CompletableFuture (checked IOException заворачиваем
-    /// в CompletionException), чтобы логирование/учёт шли на уровне CF-цепочки в {@link #pingTick()}.
-    private MinecraftServerSnapshot.Online ping(ServerPingTarget target) {
+    /// Цели пинга — игровые адреса из опубликованного вида стора (без DB-хита каждый тик);
+    /// адреса, обновлённые {@link MinecraftServerSnapshotStore#putHosts}, попадают сюда с ближайшим publish.
+    private List<ServerPingTarget> pingTargets() {
+        return store.findAll().stream()
+                .flatMap(listing -> listing.gameHost()
+                        .map(host -> new ServerPingTarget(listing.id(), host.address(), host.port()))
+                        .stream())
+                .toList();
+    }
+
+    /// Прогрев после рестарта: последнее сохранённое ONLINE-состояние как часть пинга, если оно свежее
+    /// {@code app.servers.warm-start.max-age}; иначе {@code null} — сервер считается offline до первого пинга.
+    private ObservedState warmPing(MinecraftServerState state, Instant now) {
+        if (state == null
+                || state.getStatus() != MinecraftServerStateInfo.Status.ONLINE
+                || state.getUpdatedAt() == null
+                || state.getUpdatedAt().toInstant().isBefore(now.minus(warmStartMaxAge))) {
+            return null;
+        }
+
+        final var ping = MinecraftServerStates.ping(state.getPing(), state.getPlayersOnline(), state.getPlayersMax());
+        return new ObservedState(
+                MinecraftServerStateInfo.builder(ping).minecraftServerId(state.getMinecraftServerId()).build(),
+                state.getUpdatedAt().toInstant());
+    }
+
+    /// Один пинг: описание сервера и часть состояния. Причину НЕ глушим — пробрасываем в CompletableFuture
+    /// (checked IOException заворачиваем в CompletionException), чтобы логирование/учёт шли на уровне CF-цепочки.
+    private MinecraftServerInfo ping(ServerPingTarget target) {
         try {
-            return monitoringService.pingOnline(target.host(), target.port());
+            return monitoringService.ping(target.host(), target.port());
         } catch (IOException e) {
             throw new CompletionException(e);
         }

@@ -5,7 +5,7 @@ import com.pixplaze.api.ext.data.auth.AuthorizationToken;
 import com.pixplaze.api.web.data.auth.DeviceAuthorizationStatus;
 import com.pixplaze.api.web.data.dto.DeviceAuthorizationInfo;
 import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
-import com.pixplaze.api.web.exception.auth.DeviceAuthorizationError;
+import com.pixplaze.api.ext.data.oauth.OAuthError;
 import com.pixplaze.api.web.exception.auth.DeviceAuthorizationException;
 import com.pixplaze.api.web.service.ProfileService;
 import com.pixplaze.api.web.service.auth.device.model.ApproverDecision;
@@ -15,6 +15,7 @@ import com.pixplaze.api.web.service.auth.device.model.DeviceAuthorizationState;
 import lombok.RequiredArgsConstructor;
 import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.JacksonException;
 
 /**
  * Подготовка вызова стратегии: подобрать стратегию по привилегии и собрать ей
@@ -58,11 +59,11 @@ public class DeviceAuthorizationStrategyInvoker {
         final var decision = state.decision();
 
         if (decision == null) {
-            throw new DeviceAuthorizationException(DeviceAuthorizationError.EXPIRED_TOKEN);
+            throw new DeviceAuthorizationException(OAuthError.EXPIRED_TOKEN);
         }
 
         if (decision.status() != DeviceAuthorizationStatus.APPROVED) {
-            throw new DeviceAuthorizationException(DeviceAuthorizationError.INVALID_GRANT);
+            throw new DeviceAuthorizationException(OAuthError.INVALID_GRANT);
         }
 
         return build(state.request(), state.details(), state.status(), loadApprover(decision));
@@ -76,7 +77,13 @@ public class DeviceAuthorizationStrategyInvoker {
     ) {
         final var authority = request.authority();
         final DeviceAuthorizationStrategy<A, AuthorizationToken> strategy = strategyFactory.of(authority);
-        final var parsedDetails = strategy.parse(request.clientId(), authority, details);
+        final A parsedDetails;
+        try {
+            parsedDetails = strategy.parse(request.clientId(), authority, details);
+        } catch (JacksonException | IllegalArgumentException e) {
+            // Детали присылает недоверенное устройство: нет, не JSON или не та форма — invalid_request.
+            throw new DeviceAuthorizationException(OAuthError.INVALID_REQUEST, e);
+        }
 
         return new StrategyCall<>(strategy, new DeviceAuthorizationContext<>(authority, parsedDetails, status, approver));
     }

@@ -1,6 +1,6 @@
 package com.pixplaze.api.web.service.auth;
 
-import com.pixplaze.api.ext.data.Authority;
+import com.pixplaze.api.ext.data.auth.Authority;
 import com.pixplaze.api.web.configuration.properties.AccessTokenProperties;
 import com.pixplaze.api.web.data.user.ClientPrincipal;
 import com.pixplaze.api.web.data.user.MinecraftServerPrincipal;
@@ -27,7 +27,7 @@ public class MinecraftServerAccessTokenService extends AbstractEsClientTokenServ
 
     @Override
     protected void writeIdentityClaims(MinecraftServerPrincipal identity, Map<String, Object> claims) {
-        claims.put(Authority.Claims.MINECRAFT_CONTEXT, Map.of("sid", identity.getServerId(), "host", identity.getHost()));
+        claims.put(Authority.Claims.MINECRAFT_CONTEXT, Map.of("sid", identity.getMinecraftServerId()));
     }
 
     /** Активный публичный ключ (Base64 DER) — для device-flow выдачи серверу. */
@@ -44,8 +44,7 @@ public class MinecraftServerAccessTokenService extends AbstractEsClientTokenServ
     static ClientPrincipal toPrincipal(Claims claims, Authority authority) {
         final var mc = AccessTokenClaims.minecraftContext(claims);
         final var server = new MinecraftServerPrincipal();
-        server.setServerId(AccessTokenClaims.asLong(mc.get("sid")));
-        server.setHost((String) mc.get("host"));
+        server.setMinecraftServerId(AccessTokenClaims.asLong(mc.get("sid")));
         server.setName(claims.getSubject());
         server.setAuthority(authority);
         return server;

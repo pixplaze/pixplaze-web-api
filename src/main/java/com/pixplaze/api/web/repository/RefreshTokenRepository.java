@@ -25,6 +25,7 @@ public class RefreshTokenRepository {
                 .set(REFRESH_TOKEN.MINECRAFT_PLAYER_UUID, token.getMinecraftPlayerUuid())
                 .set(REFRESH_TOKEN.AUTH_SOURCE, token.getAuthSource())
                 .set(REFRESH_TOKEN.AUTH_ROLES, token.getAuthRoles())
+                .set(REFRESH_TOKEN.AUTH_TARGETS, token.getAuthTargets())
                 .set(REFRESH_TOKEN.EXPIRES_AT, token.getExpiresAt())
                 .returning()
                 .fetchOneInto(RefreshToken.class);

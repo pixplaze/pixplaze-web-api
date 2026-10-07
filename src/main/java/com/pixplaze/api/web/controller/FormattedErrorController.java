@@ -1,6 +1,6 @@
 package com.pixplaze.api.web.controller;
 
-import com.pixplaze.api.web.data.dto.ErrorResponse;
+import com.pixplaze.api.ext.data.ErrorResponse;
 import com.pixplaze.api.web.service.ExceptionHandlerService;
 import jakarta.servlet.RequestDispatcher;
 import jakarta.servlet.http.HttpServletRequest;

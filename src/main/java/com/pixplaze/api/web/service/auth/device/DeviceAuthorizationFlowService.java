@@ -1,13 +1,13 @@
 package com.pixplaze.api.web.service.auth.device;
 
 import com.pixplaze.api.ext.data.auth.AuthorizationToken;
-import com.pixplaze.api.ext.data.auth.DeviceResponseInfo;
+import com.pixplaze.api.ext.data.oauth.DeviceAuthorizationResponse;
 import com.pixplaze.api.web.configuration.properties.DeviceAuthorizationProperties;
 import com.pixplaze.api.web.data.auth.DeviceAuthorizationStatus;
 import com.pixplaze.api.web.data.dto.DeviceAuthorizationDecisionRequest;
 import com.pixplaze.api.web.data.dto.DeviceAuthorizationInfo;
 import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
-import com.pixplaze.api.web.exception.auth.DeviceAuthorizationError;
+import com.pixplaze.api.ext.data.oauth.OAuthError;
 import com.pixplaze.api.web.exception.auth.DeviceAuthorizationException;
 import com.pixplaze.api.web.service.auth.device.DeviceAuthorizationStore.DecisionOutcome;
 import com.pixplaze.api.web.service.auth.device.model.ApproverDecision;
@@ -44,7 +44,11 @@ public class DeviceAuthorizationFlowService implements DeviceAuthorizationServic
     private final DeviceAuthorizationProperties properties;
 
     @Override
-    public DeviceResponseInfo authorize(String clientId, String scope, @Nullable String details) {
+    public DeviceAuthorizationResponse authorize(String clientId, String scope, @Nullable String details) {
+        if (isBlank(clientId)) {
+            throw error(OAuthError.INVALID_REQUEST);
+        }
+
         final var deviceCode = codeGenerator.generateDeviceCode();
         final var request = new DeviceAuthorizationRequest(
                 clientId,
@@ -58,7 +62,7 @@ public class DeviceAuthorizationFlowService implements DeviceAuthorizationServic
 
         final var published = publish(request, details);
 
-        return DeviceResponseInfo.builder()
+        return DeviceAuthorizationResponse.builder()
                 .deviceCode(deviceCode)
                 .userCode(published.userCode())
                 .expiresIn(properties.expiration().toSeconds())
@@ -71,7 +75,7 @@ public class DeviceAuthorizationFlowService implements DeviceAuthorizationServic
     @Override
     public AuthorizationToken poll(String clientId, String deviceCode) {
         if (isBlank(clientId) || isBlank(deviceCode)) {
-            throw error(DeviceAuthorizationError.INVALID_REQUEST);
+            throw error(OAuthError.INVALID_REQUEST);
         }
 
         final var deviceCodeHash = codeGenerator.hashDeviceCode(deviceCode);
@@ -79,19 +83,19 @@ public class DeviceAuthorizationFlowService implements DeviceAuthorizationServic
 
         if (consumed.isEmpty()) {
             log.debug("Device authorization polled after expiry or with an unknown device code");
-            throw error(DeviceAuthorizationError.EXPIRED_TOKEN);
+            throw error(OAuthError.EXPIRED_TOKEN);
         }
 
         final var attempt = consumed.get();
         final var state = attempt.state();
 
         if (!state.request().clientId().equals(clientId)) {
-            throw reject(deviceCodeHash, DeviceAuthorizationError.INVALID_GRANT); // Попытка подмены контекста
+            throw reject(deviceCodeHash, OAuthError.INVALID_GRANT); // Попытка подмены контекста
         }
 
         if (state.attemptsLeft() < 0) {
             log.info("Device authorization polling budget exhausted: clientId={}", state.request().clientId());
-            throw reject(deviceCodeHash, DeviceAuthorizationError.EXPIRED_TOKEN);
+            throw reject(deviceCodeHash, OAuthError.EXPIRED_TOKEN);
         }
 
         if (state.status() == DeviceAuthorizationStatus.PENDING) {
@@ -100,14 +104,14 @@ public class DeviceAuthorizationFlowService implements DeviceAuthorizationServic
                         "Device authorization polled before the interval elapsed: clientId={}",
                         state.request().clientId()
                 );
-                throw error(DeviceAuthorizationError.SLOW_DOWN);
+                throw error(OAuthError.SLOW_DOWN);
             }
 
-            throw error(DeviceAuthorizationError.AUTHORIZATION_PENDING);
+            throw error(OAuthError.AUTHORIZATION_PENDING);
         }
 
         if (state.status() == DeviceAuthorizationStatus.DENIED) {
-            throw reject(deviceCodeHash, DeviceAuthorizationError.ACCESS_DENIED);
+            throw reject(deviceCodeHash, OAuthError.ACCESS_DENIED);
         }
 
         return grant(deviceCodeHash);
@@ -116,7 +120,7 @@ public class DeviceAuthorizationFlowService implements DeviceAuthorizationServic
     @Override
     public void approve(DeviceAuthorizationDecisionRequest decisionRequest, ApplicationClientPrincipal approver) {
         if (decisionRequest.decision() == null) {
-            throw error(DeviceAuthorizationError.INVALID_REQUEST);
+            throw error(OAuthError.INVALID_REQUEST);
         }
 
         final var state = findAwaitingDecision(decisionRequest.userCode());
@@ -124,10 +128,10 @@ public class DeviceAuthorizationFlowService implements DeviceAuthorizationServic
                         state.request().deviceCodeHash(),
                         ApproverDecision.of(decisionRequest.decision(), approver),
                         properties.decisionTtl())
-                .orElseThrow(() -> error(DeviceAuthorizationError.EXPIRED_TOKEN));
+                .orElseThrow(() -> error(OAuthError.EXPIRED_TOKEN));
 
         if (outcome == DecisionOutcome.ALREADY_DECIDED) {
-            throw error(DeviceAuthorizationError.INVALID_GRANT);
+            throw error(OAuthError.INVALID_GRANT);
         }
     }
 
@@ -140,14 +144,14 @@ public class DeviceAuthorizationFlowService implements DeviceAuthorizationServic
     /// подтверждения не должен показывать запрос, одобрение которого уже ни к чему не приведёт.
     private DeviceAuthorizationState findAwaitingDecision(String userCode) {
         final var state = store.findByUserCode(userCode)
-                .orElseThrow(() -> error(DeviceAuthorizationError.EXPIRED_TOKEN));
+                .orElseThrow(() -> error(OAuthError.EXPIRED_TOKEN));
 
         if (state.decision() != null) {
-            throw error(DeviceAuthorizationError.INVALID_GRANT);
+            throw error(OAuthError.INVALID_GRANT);
         }
 
         if (!state.canBePolledAgain()) {
-            throw error(DeviceAuthorizationError.EXPIRED_TOKEN);
+            throw error(OAuthError.EXPIRED_TOKEN);
         }
 
         return state;
@@ -159,7 +163,7 @@ public class DeviceAuthorizationFlowService implements DeviceAuthorizationServic
     /// эффекты стратегий транзакционны, поэтому полурегистрации после сбоя не остаётся.
     private AuthorizationToken grant(String deviceCodeHash) {
         final var claimed = store.takeAndRemove(deviceCodeHash)
-                .orElseThrow(() -> error(DeviceAuthorizationError.EXPIRED_TOKEN));
+                .orElseThrow(() -> error(OAuthError.EXPIRED_TOKEN));
 
         try {
             return strategyInvoker.forGrant(claimed).authorize();
@@ -167,7 +171,7 @@ public class DeviceAuthorizationFlowService implements DeviceAuthorizationServic
             throw e;
         } catch (RuntimeException e) {
             log.error("Device authorization grant failed", e);
-            throw new DeviceAuthorizationException(DeviceAuthorizationError.SERVER_ERROR, e);
+            throw new DeviceAuthorizationException(OAuthError.SERVER_ERROR, e);
         }
     }
 
@@ -189,12 +193,12 @@ public class DeviceAuthorizationFlowService implements DeviceAuthorizationServic
         }
     }
 
-    private DeviceAuthorizationException reject(String deviceCodeHash, DeviceAuthorizationError error) {
+    private DeviceAuthorizationException reject(String deviceCodeHash, OAuthError error) {
         store.remove(deviceCodeHash);
         return error(error);
     }
 
-    private static DeviceAuthorizationException error(DeviceAuthorizationError error) {
+    private static DeviceAuthorizationException error(OAuthError error) {
         return new DeviceAuthorizationException(error);
     }
 

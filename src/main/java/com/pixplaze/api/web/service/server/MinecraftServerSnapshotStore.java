@@ -1,8 +1,10 @@
 package com.pixplaze.api.web.service.server;
 
-import com.pixplaze.api.web.data.server.MinecraftServerSnapshot;
-import com.pixplaze.api.web.service.server.model.MinecraftServerListingInfo;
+import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServer;
+import com.pixplaze.api.web.data.server.ObservedState;
+import com.pixplaze.api.web.data.server.ServerHosts;
 import com.pixplaze.api.web.data.server.ServerRatingAggregate;
+import com.pixplaze.api.web.service.server.model.MinecraftServerListing;
 
 import java.util.Collection;
 import java.util.List;
@@ -14,28 +16,38 @@ import java.util.Optional;
  * доступности серверов.
  *
  * <p>Абстракция намеренно тонкая, чтобы при росте (тысячи+ серверов, несколько инстансов) заменить
- * in-memory реализацию на распределённую (напр. Redis) без правки read-слоя.
+ * in-memory реализацию на распределённую (напр. Redis: часть пинга и часть плагина — отдельные записи,
+ * у плагинной TTL) без правки read-слоя.
  *
- * <p>Модель обновления: {@link #replaceAll} задаёт базовый набор из БД (сохраняя online/plugin),
- * {@link #putOnline}/{@link #putPlugin} обновляют тиры точечно, {@link #publish} атомарно
+ * <p>Модель обновления: {@link #replaceAll} задаёт базовый набор из БД, сохраняя собранное в памяти и не
+ * откатывая более свежие описание и адреса; {@code put*} обновляют точечно; {@link #publish} атомарно
  * публикует новый неизменяемый вид для читателей (раз в цикл, а не на каждую запись).
  */
 public interface MinecraftServerSnapshotStore {
 
     /** Точечный поиск по DB id — свежие данные (для `/servers/state`). */
-    Optional<MinecraftServerListingInfo> find(long serverId);
+    Optional<MinecraftServerListing> find(long serverId);
 
     /** Опубликованный неизменяемый вид всего листинга — для пагинации `/servers` (O(1) чтение). */
-    List<MinecraftServerListingInfo> findAll();
+    List<MinecraftServerListing> findAll();
 
-    /** Синхронизирует базовый набор с БД: upsert базы (сохраняя online/plugin), удаление делистнутых. */
-    void replaceAll(Collection<MinecraftServerListingInfo> bases);
+    /** Синхронизирует базовый набор с БД: обновление известных, добавление новых, удаление делистнутых. */
+    void replaceAll(Collection<MinecraftServerListing> bases);
 
-    /** Обновляет Tier-2 сервера ({@code null} ⇒ помечен offline). No-op, если сервер не в наборе. */
-    void putOnline(long serverId, MinecraftServerSnapshot.Online online);
+    /** Добавляет новый сервер (после регистрации), не дожидаясь base-sync. No-op, если он уже в наборе. */
+    void putServer(MinecraftServerListing listing);
 
-    /** Обновляет Tier-3 сервера. No-op, если сервер не в наборе. */
-    void putPlugin(long serverId, MinecraftServerSnapshot.Plugin plugin);
+    /** Часть пинга (успех или OFFLINE). No-op, если сервер не в наборе. */
+    void putPing(long serverId, ObservedState ping);
+
+    /** Часть плагина из heartbeat. No-op, если сервер не в наборе. */
+    void putPlugin(long serverId, ObservedState plugin);
+
+    /** Описание, если оно не старше известного ({@code updated_at}). No-op, если сервер не в наборе. */
+    void putBase(MinecraftServer base);
+
+    /** Адреса, если они не старше известных. No-op, если сервер не в наборе. */
+    void putHosts(long serverId, ServerHosts hosts);
 
     /** Обновляет агрегат рейтинга сервера (после голоса). No-op, если сервер не в наборе. */
     void putRating(long serverId, ServerRatingAggregate rating);

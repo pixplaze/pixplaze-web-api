@@ -1,13 +1,16 @@
 package com.pixplaze.api.web.repository;
 
-import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
+import com.pixplaze.api.ext.data.server.MinecraftServerHostInfo;
+import com.pixplaze.api.ext.data.server.MinecraftServerStateInfo;
 import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServer;
-import com.pixplaze.api.web.data.server.MinecraftServerStatus;
-import com.pixplaze.api.web.data.server.ServerPingTarget;
+import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServerState;
+import com.pixplaze.api.web.data.server.ServerHosts;
 import com.pixplaze.api.web.data.server.ServerRatingAggregate;
+import com.pixplaze.api.web.util.AddressUtils;
 import com.pixplaze.api.web.util.NullUtils;
 import lombok.AllArgsConstructor;
 import org.jooq.DSLContext;
+import org.jooq.Record;
 import org.jooq.Record3;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
@@ -24,39 +27,86 @@ public class MinecraftServerRepository {
 
     private final DSLContext dslContext;
 
-    public List<MinecraftServerInfo> getMinecraftServerList() {
-        return dslContext.select()
-                .from(MINECRAFT_SERVER)
-                .fetchInto(MinecraftServerInfo.class);
-    }
-
     /// Все залистингованные серверы (авторитетная база из БД) — источник правды для листинга.
     public List<MinecraftServer> findAllListed() {
         return dslContext.selectFrom(MINECRAFT_SERVER)
                 .fetchInto(MinecraftServer.class);
     }
 
-    /// Адреса для Tier-2 пинга: по строке на сервер (host + Java-порт; при отсутствии порта — 25565).
-    /// {@code min(java_port)} + group by гарантирует одну строку на сервер даже при нескольких портах.
-    public List<ServerPingTarget> findPingTargets() {
-        return dslContext.select(
-                        MINECRAFT_SERVER.ID,
-                        MINECRAFT_SERVER.HOST,
-                        DSL.coalesce(DSL.min(MINECRAFT_SERVER_PORT.JAVA_PORT), DSL.inline(25565)))
-                .from(MINECRAFT_SERVER)
-                .leftJoin(MINECRAFT_SERVER_PORT).on(MINECRAFT_SERVER_PORT.MINECRAFT_SERVER_ID.eq(MINECRAFT_SERVER.ID))
-                .groupBy(MINECRAFT_SERVER.ID, MINECRAFT_SERVER.HOST)
-                .fetch(record -> new ServerPingTarget(
-                        record.get(MINECRAFT_SERVER.ID),
-                        record.get(MINECRAFT_SERVER.HOST),
-                        record.get(2, Integer.class)));
+    /// Последнее сохранённое состояние всех серверов одним запросом (для base-sync листинга).
+    public Map<Long, MinecraftServerState> findAllStates() {
+        return dslContext.selectFrom(MINECRAFT_SERVER_STATE)
+                .fetchMap(MINECRAFT_SERVER_STATE.MINECRAFT_SERVER_ID, MinecraftServerState.class);
     }
 
-    public Optional<MinecraftServer> findByHost(String host) {
-        return dslContext.select()
-                .from(MINECRAFT_SERVER)
-                .where(MINECRAFT_SERVER.HOST.eq(host))
-                .fetchOptionalInto(MinecraftServer.class);
+    /// Адреса одного сервера (HOST/MAP/API — сколько объявлено) с моментом последней записи.
+    public ServerHosts findHosts(Long serverId) {
+        return toServerHosts(dslContext.selectFrom(MINECRAFT_SERVER_HOST)
+                .where(MINECRAFT_SERVER_HOST.MINECRAFT_SERVER_ID.eq(serverId))
+                .fetch());
+    }
+
+    /// Адреса всех серверов одним запросом, сгруппированные по серверу (для base-sync листинга).
+    public Map<Long, ServerHosts> findAllHosts() {
+        final var result = new HashMap<Long, ServerHosts>();
+        dslContext.selectFrom(MINECRAFT_SERVER_HOST)
+                .fetchGroups(MINECRAFT_SERVER_HOST.MINECRAFT_SERVER_ID)
+                .forEach((serverId, records) -> result.put(serverId, toServerHosts(records)));
+        return result;
+    }
+
+    private static ServerHosts toServerHosts(List<? extends Record> records) {
+        if (records.isEmpty()) {
+            return ServerHosts.EMPTY;
+        }
+
+        final var updatedAt = records.stream()
+                .map(record -> record.get(MINECRAFT_SERVER_HOST.UPDATED_AT))
+                .max(Comparator.naturalOrder())
+                .orElse(null);
+        return new ServerHosts(records.stream().map(MinecraftServerRepository::toHostInfo).toList(), updatedAt);
+    }
+
+    /// Занят ли игровой адрес (HOST) уже зарегистрированным сервером.
+    public boolean isGameHostTaken(String address, Integer port) {
+        return dslContext.fetchExists(
+                MINECRAFT_SERVER_HOST,
+                MINECRAFT_SERVER_HOST.TYPE.eq(MinecraftServerHostInfo.Type.HOST)
+                        .and(MINECRAFT_SERVER_HOST.ADDRESS.eq(AddressUtils.normalizeHost(address)))
+                        .and(MINECRAFT_SERVER_HOST.PORT.eq(port))
+        );
+    }
+
+    /// Записывает адреса сервера: по строке на тип, объявленный повторно тип перезаписывается.
+    /// Игровой адрес, занятый другим сервером, отклоняет уникальный индекс {@code uq_minecraft_server_host_game}.
+    public void upsertHosts(Long serverId, Collection<MinecraftServerHostInfo> hosts) {
+        if (NullUtils.isNullOrEmpty(hosts)) {
+            return;
+        }
+
+        final var queries = hosts.stream()
+                .map(host -> dslContext.insertInto(MINECRAFT_SERVER_HOST)
+                        .set(MINECRAFT_SERVER_HOST.MINECRAFT_SERVER_ID, serverId)
+                        .set(MINECRAFT_SERVER_HOST.TYPE, Objects.requireNonNull(host.type(), "Host 'type' must not be null!"))
+                        .set(MINECRAFT_SERVER_HOST.ADDRESS, AddressUtils.normalizeHost(host.address()))
+                        .set(MINECRAFT_SERVER_HOST.PORT, host.port())
+                        .set(MINECRAFT_SERVER_HOST.UPDATED_AT, DSL.currentOffsetDateTime())
+                        .onConflict(MINECRAFT_SERVER_HOST.MINECRAFT_SERVER_ID, MINECRAFT_SERVER_HOST.TYPE)
+                        .doUpdate()
+                        .set(MINECRAFT_SERVER_HOST.ADDRESS, DSL.excluded(MINECRAFT_SERVER_HOST.ADDRESS))
+                        .set(MINECRAFT_SERVER_HOST.PORT, DSL.excluded(MINECRAFT_SERVER_HOST.PORT))
+                        .set(MINECRAFT_SERVER_HOST.UPDATED_AT, DSL.excluded(MINECRAFT_SERVER_HOST.UPDATED_AT)))
+                .toList();
+
+        dslContext.batch(queries).execute();
+    }
+
+    private static MinecraftServerHostInfo toHostInfo(Record record) {
+        return new MinecraftServerHostInfo(
+                record.get(MINECRAFT_SERVER_HOST.MINECRAFT_SERVER_ID),
+                record.get(MINECRAFT_SERVER_HOST.ADDRESS),
+                record.get(MINECRAFT_SERVER_HOST.PORT),
+                record.get(MINECRAFT_SERVER_HOST.TYPE));
     }
 
     public Optional<MinecraftServer> findById(Long id) {
@@ -66,14 +116,18 @@ public class MinecraftServerRepository {
                 .fetchOptionalInto(MinecraftServer.class);
     }
 
-    /// Создаёт сервер в статусе ONLINE (момент успешной регистрации) вместе со строкой состояния.
+    /// Создаёт сервер вместе с адресами и строкой текущего состояния (OFFLINE до первого пинга).
     @Transactional
-    public MinecraftServer create(MinecraftServer server, MinecraftServerStatus minecraftServerStatus) {
+    public MinecraftServer create(
+            MinecraftServer server,
+            MinecraftServerStateInfo.IntegrationStatus integrationStatus,
+            Collection<MinecraftServerHostInfo> hosts
+    ) {
         final var created = Objects.requireNonNull(
                 dslContext.insertInto(MINECRAFT_SERVER)
                         .set(MINECRAFT_SERVER.NAME, server.getName())
-                        .set(MINECRAFT_SERVER.HOST, server.getHost())
                         .set(MINECRAFT_SERVER.IS_LICENSE, server.getIsLicense())
+                        .set(MINECRAFT_SERVER.OWNER_PROFILE_ID, server.getOwnerProfileId())
                         .set(MINECRAFT_SERVER.DESCRIPTION, server.getDescription())
                         .set(MINECRAFT_SERVER.CREATED_AT, OffsetDateTime.now())
                         .returning()
@@ -83,32 +137,65 @@ public class MinecraftServerRepository {
 
         dslContext.insertInto(MINECRAFT_SERVER_STATE)
                 .set(MINECRAFT_SERVER_STATE.MINECRAFT_SERVER_ID, created.getId())
-                .set(MINECRAFT_SERVER_STATE.STATUS, minecraftServerStatus)
+                .set(MINECRAFT_SERVER_STATE.INTEGRATION_STATUS, integrationStatus)
                 .execute();
+
+        upsertHosts(created.getId(), hosts);
 
         return created;
     }
 
-    public Optional<MinecraftServerStatus> getStatus(Long serverId) {
-        return dslContext.select(MINECRAFT_SERVER_STATE.STATUS)
-                .from(MINECRAFT_SERVER_STATE)
-                .where(MINECRAFT_SERVER_STATE.MINECRAFT_SERVER_ID.eq(serverId))
-                .fetchOptional(MINECRAFT_SERVER_STATE.STATUS);
+    /// Online-mode сообщает сам сервер (повторная авторизация, heartbeat); {@code null} — не прислал, не трогаем.
+    /// Пишет только изменение; возвращает обновлённую строку, если она изменилась.
+    public Optional<MinecraftServer> updateLicense(Long serverId, Boolean isLicense) {
+        if (isLicense == null) {
+            return Optional.empty();
+        }
+
+        return dslContext.update(MINECRAFT_SERVER)
+                .set(MINECRAFT_SERVER.IS_LICENSE, isLicense)
+                .set(MINECRAFT_SERVER.UPDATED_AT, DSL.currentOffsetDateTime())
+                .where(MINECRAFT_SERVER.ID.eq(serverId))
+                .and(MINECRAFT_SERVER.IS_LICENSE.isDistinctFrom(isLicense))
+                .returning()
+                .fetchOptionalInto(MinecraftServer.class);
     }
 
-    public void setStatus(Long serverId, MinecraftServerStatus status) {
-        dslContext.update(MINECRAFT_SERVER_STATE)
-                .set(MINECRAFT_SERVER_STATE.STATUS, status)
-                .set(MINECRAFT_SERVER_STATE.UPDATED_AT, OffsetDateTime.now())
-                .where(MINECRAFT_SERVER_STATE.MINECRAFT_SERVER_ID.eq(serverId))
-                .execute();
+    /// Описание, которое web-api узнаёт пингом (motd, иконка, ядро): пишет только изменение одним запросом —
+    /// сравнение делает БД, поэтому без гонок между экземплярами. Возвращает обновлённую строку, если изменилась.
+    public Optional<MinecraftServer> updatePingDescription(Long serverId, String motd, String icon, String coreName, String coreVersion) {
+        return dslContext.update(MINECRAFT_SERVER)
+                .set(MINECRAFT_SERVER.MOTD, motd)
+                .set(MINECRAFT_SERVER.ICON, icon)
+                .set(MINECRAFT_SERVER.CORE_NAME, coreName)
+                .set(MINECRAFT_SERVER.CORE_VERSION, coreVersion)
+                .set(MINECRAFT_SERVER.UPDATED_AT, DSL.currentOffsetDateTime())
+                .where(MINECRAFT_SERVER.ID.eq(serverId))
+                .and(MINECRAFT_SERVER.MOTD.isDistinctFrom(motd)
+                        .or(MINECRAFT_SERVER.ICON.isDistinctFrom(icon))
+                        .or(MINECRAFT_SERVER.CORE_NAME.isDistinctFrom(coreName))
+                        .or(MINECRAFT_SERVER.CORE_VERSION.isDistinctFrom(coreVersion)))
+                .returning()
+                .fetchOptionalInto(MinecraftServer.class);
     }
 
-    public void updateHost(Long id, String host) {
-        dslContext.update(MINECRAFT_SERVER)
-                .set(MINECRAFT_SERVER.HOST, host)
-                .where(MINECRAFT_SERVER.ID.eq(id))
-                .execute();
+    /// Забанен ли сервер. Несуществующий сервер — не забанен: существование проверяет вызывающий.
+    public boolean isBanned(Long serverId) {
+        return dslContext.fetchExists(
+                MINECRAFT_SERVER,
+                MINECRAFT_SERVER.ID.eq(serverId).and(MINECRAFT_SERVER.BANNED_AT.isNotNull())
+        );
+    }
+
+    /// Банит сервер; повторный бан сохраняет момент первого. Возвращает обновлённую строку, если бан новый.
+    public Optional<MinecraftServer> ban(Long serverId) {
+        return dslContext.update(MINECRAFT_SERVER)
+                .set(MINECRAFT_SERVER.BANNED_AT, OffsetDateTime.now())
+                .set(MINECRAFT_SERVER.UPDATED_AT, DSL.currentOffsetDateTime())
+                .where(MINECRAFT_SERVER.ID.eq(serverId))
+                .and(MINECRAFT_SERVER.BANNED_AT.isNull())
+                .returning()
+                .fetchOptionalInto(MinecraftServer.class);
     }
 
     /// Привязывает игрока-оператора к серверу ({@code is_operator = true}). Идемпотентна:
@@ -138,7 +225,7 @@ public class MinecraftServerRepository {
             return;
         }
 
-        // 1. Статический шаблон запроса (План компилируется базой 1 раз)
+        // 1. Статический шаблон запроса (План компилируется базой 1 раз); значения — заглушки под bind.
         var query = dslContext.insertInto(MINECRAFT_SERVER_PLAYER)
                 .columns(
                         MINECRAFT_SERVER_PLAYER.MINECRAFT_PLAYER_UUID,
@@ -146,6 +233,7 @@ public class MinecraftServerRepository {
                         MINECRAFT_SERVER_PLAYER.IS_OPERATOR,
                         MINECRAFT_SERVER_PLAYER.IS_OWNER
                 )
+                .values((UUID) null, (Long) null, (Boolean) null, (Boolean) null)
                 .onConflict(MINECRAFT_SERVER_PLAYER.MINECRAFT_PLAYER_UUID, MINECRAFT_SERVER_PLAYER.MINECRAFT_SERVER_ID)
                 .doNothing();
 
@@ -155,6 +243,7 @@ public class MinecraftServerRepository {
             batch.bind(
                     uuid,
                     serverId,
+                    true,
                     uuid.equals(ownerUuid)
             );
         }
@@ -199,6 +288,7 @@ public class MinecraftServerRepository {
 
         var query = dslContext.insertInto(MINECRAFT_SERVER_FAVORITE)
                 .columns(MINECRAFT_SERVER_FAVORITE.MINECRAFT_SERVER_ID, MINECRAFT_SERVER_FAVORITE.PROFILE_ID)
+                .values((Long) null, (Long) null)
                 .onDuplicateKeyIgnore();
 
         var batch = dslContext.batch(query);

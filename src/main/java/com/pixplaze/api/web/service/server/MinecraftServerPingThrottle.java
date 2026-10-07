@@ -49,7 +49,7 @@ public class MinecraftServerPingThrottle {
         final var now = Instant.now();
 
         final var due = new ArrayList<>(targets);
-        due.removeIf(target -> now.isBefore(schedule(target.serverId()).nextCheckAt));
+        due.removeIf(target -> now.isBefore(schedule(target.minecraftServerId()).nextCheckAt));
         Collections.shuffle(due); // непредсказуемый порядок
 
         final var picked = new ArrayList<ServerPingTarget>();
@@ -72,7 +72,7 @@ public class MinecraftServerPingThrottle {
             // inFlight занятого зависнет на 1 и сервер выпадет из выбора навсегда.
             gate.inFlight.incrementAndGet();
             gate.lastAttemptAt = now;
-            final var schedule = schedule(target.serverId());
+            final var schedule = schedule(target.minecraftServerId());
             schedule.claimedSubnetKey = subnetKey;
             schedule.nextCheckAt = now.plus(BASE_INTERVAL);
             picked.add(target);
@@ -81,14 +81,14 @@ public class MinecraftServerPingThrottle {
     }
 
     public void recordSuccess(ServerPingTarget target) {
-        final var schedule = schedule(target.serverId());
+        final var schedule = schedule(target.minecraftServerId());
         schedule.failures = 0;
         schedule.nextCheckAt = Instant.now().plusMillis(jitter(BASE_INTERVAL.toMillis()));
         release(target);
     }
 
     public void recordFailure(ServerPingTarget target) {
-        final var schedule = schedule(target.serverId());
+        final var schedule = schedule(target.minecraftServerId());
         schedule.failures = Math.min(schedule.failures + 1, MAX_FAILURE_EXP);
         final var backoffMillis = Math.min(MAX_BACKOFF.toMillis(), BASE_INTERVAL.toMillis() * (1L << schedule.failures));
         schedule.nextCheckAt = Instant.now().plusMillis(jitter(backoffMillis));
@@ -98,7 +98,7 @@ public class MinecraftServerPingThrottle {
     /// Освобождаем ИМЕННО тот шлюз, что занял claim (ключ сохранён на расписании), а не результат
     /// повторного резолва host — гарантия симметрии inFlight при нестабильном DNS.
     private void release(ServerPingTarget target) {
-        final var claimedKey = schedule(target.serverId()).claimedSubnetKey;
+        final var claimedKey = schedule(target.minecraftServerId()).claimedSubnetKey;
         if (claimedKey == null) {
             return; // release без парного claim — освобождать нечего
         }

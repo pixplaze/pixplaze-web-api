@@ -144,16 +144,15 @@ public class MinecraftPlayerRepository {
                 .fetchInto(MinecraftPlayer.class);
     }
 
-    /// Хосты серверов, на которых состоят связанные с профилем игроки (любое членство, не только
+    /// Id серверов, на которых состоят связанные с профилем игроки (любое членство, не только
     /// операторское). Идут в targets (aud) access-токена профиля, чтобы MC-сервер принимал его при
     /// веб-взаимодействии. Членство наполняется при device-входе игрока и регистрации сервера.
-    public List<String> findServerHostsByProfileId(Long profileId) {
-        return dslContext.selectDistinct(MINECRAFT_SERVER.HOST)
+    public List<Long> findServerIdsByProfileId(Long profileId) {
+        return dslContext.selectDistinct(MINECRAFT_SERVER_PLAYER.MINECRAFT_SERVER_ID)
                 .from(MINECRAFT_PLAYER_PROFILE)
                 .join(MINECRAFT_SERVER_PLAYER).on(MINECRAFT_SERVER_PLAYER.MINECRAFT_PLAYER_UUID.eq(MINECRAFT_PLAYER_PROFILE.MINECRAFT_PLAYER_UUID))
-                .join(MINECRAFT_SERVER).on(MINECRAFT_SERVER.ID.eq(MINECRAFT_SERVER_PLAYER.MINECRAFT_SERVER_ID))
                 .where(MINECRAFT_PLAYER_PROFILE.PROFILE_ID.eq(profileId))
-                .fetch(MINECRAFT_SERVER.HOST);
+                .fetch(MINECRAFT_SERVER_PLAYER.MINECRAFT_SERVER_ID);
     }
 
     /** UUID игрока, привязанного к профилю. Если игроков несколько — берём последнего привязанного. */

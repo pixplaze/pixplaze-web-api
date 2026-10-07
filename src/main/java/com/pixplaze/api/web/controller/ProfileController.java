@@ -1,6 +1,6 @@
 package com.pixplaze.api.web.controller;
 
-import com.pixplaze.api.ext.data.Authority;
+import com.pixplaze.api.ext.data.auth.Authority;
 import com.pixplaze.api.web.data.db.tables.pojos.Profile;
 import com.pixplaze.api.web.data.dto.ProfileInfo;
 import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;

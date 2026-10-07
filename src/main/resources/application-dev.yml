@@ -1,6 +1,10 @@
 server:
   address: 0.0.0.0
   port: 8080
+spring:
+  flyway:
+    # тестовые серверы и ваучеры — только для разработки
+    locations: classpath:db/migration,classpath:db/dev
 app:
   url.api.gateway: http://192.168.1.100:8080
   url.app.gateway: http://192.168.1.100:5173

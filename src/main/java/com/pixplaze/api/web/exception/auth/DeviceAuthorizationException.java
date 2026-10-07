@@ -1,26 +1,27 @@
 package com.pixplaze.api.web.exception.auth;
 
+import com.pixplaze.api.ext.data.oauth.OAuthError;
 import lombok.Getter;
 
 /**
  * Ошибка token-эндпоинта (device flow / refresh_token grant). Несёт типизированный
- * {@link DeviceAuthorizationError}; HTTP-отображение собирается в обработчике контроллера.
+ * {@link OAuthError}; HTTP-отображение собирается в обработчике контроллера.
  */
 @Getter
 public class DeviceAuthorizationException extends RuntimeException {
-    private final DeviceAuthorizationError error;
+    private final OAuthError error;
 
     public DeviceAuthorizationException() {
-        this(DeviceAuthorizationError.SERVER_ERROR);
+        this(OAuthError.SERVER_ERROR);
     }
 
-    public DeviceAuthorizationException(DeviceAuthorizationError error) {
-        super(error.getCode());
+    public DeviceAuthorizationException(OAuthError error) {
+        super(error.code());
         this.error = error;
     }
 
-    public DeviceAuthorizationException(DeviceAuthorizationError error, Throwable cause) {
-        super(error.getCode(), cause);
+    public DeviceAuthorizationException(OAuthError error, Throwable cause) {
+        super(error.code(), cause);
         this.error = error;
     }
 }

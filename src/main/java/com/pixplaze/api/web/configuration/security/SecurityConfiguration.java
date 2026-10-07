@@ -75,9 +75,9 @@ public class SecurityConfiguration {
         auth.requestMatchers("/error/**").permitAll();
         auth.requestMatchers("/swagger-ui/**", "/swagger-resources/*", "/v3/api-docs/**").permitAll();
         auth.requestMatchers("/endpoint", "/admin/**").hasRole("ADMIN");
-        // Публичный листинг серверов. Порядок важен: избранное (личное) защищаем ДО общего /servers/*,
-        // чтобы GET /servers/* не сделал GET /servers/favorite анонимным.
-        auth.requestMatchers(HttpMethod.GET, "/servers/favorite").authenticated();
+        // Публичный листинг серверов. Порядок важен: личное (избранное, свои заявки) защищаем ДО общего
+        // /servers/*, чтобы GET /servers/* не сделал их анонимными.
+        auth.requestMatchers(HttpMethod.GET, "/servers/favorite", "/servers/bids").authenticated();
         auth.requestMatchers(HttpMethod.GET, "/servers", "/servers/*").permitAll();
         auth.requestMatchers(HttpMethod.POST, "/servers/state").permitAll();
         auth.anyRequest().authenticated();

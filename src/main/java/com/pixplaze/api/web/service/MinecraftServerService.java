@@ -1,29 +1,29 @@
 package com.pixplaze.api.web.service;
 
+import com.pixplaze.api.ext.data.server.MinecraftServerHostInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerStateInfo;
 import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServer;
-import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServerBid;
-import com.pixplaze.api.web.data.dto.MinecraftServerBidResponse;
-import com.pixplaze.api.web.data.dto.MinecraftServerHeartbeatRequest;
-import com.pixplaze.api.web.data.server.MinecraftServerSnapshot;
-import com.pixplaze.api.web.data.server.MinecraftServerStatus;
+import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServerState;
+import com.pixplaze.api.web.data.server.ObservedState;
+import com.pixplaze.api.web.data.server.ServerHosts;
 import com.pixplaze.api.web.data.server.ServerRatingAggregate;
-import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
-import com.pixplaze.api.web.data.voucher.VoucherCodeType;
 import com.pixplaze.api.web.exception.MinecraftServerUnavailableException;
 import com.pixplaze.api.web.exception.http.NotFoundException;
-import com.pixplaze.api.web.mapper.MinecraftServerMapper;
 import com.pixplaze.api.web.repository.MinecraftPlayerRepository;
 import com.pixplaze.api.web.repository.MinecraftServerRepository;
 import com.pixplaze.api.web.service.server.MinecraftServerListingAssembler;
 import com.pixplaze.api.web.service.server.MinecraftServerSnapshotStore;
+import com.pixplaze.api.web.service.server.model.MinecraftServerListing;
+import com.pixplaze.api.web.util.NullUtils;
 import com.pixplaze.api.web.util.PagingUtils;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.io.IOException;
 import java.time.Instant;
@@ -38,9 +38,6 @@ public class MinecraftServerService {
     private final MinecraftServerSnapshotStore minecraftServerSnapshotStore;
     private final MinecraftServerListingAssembler minecraftServerListingAssembler;
     private final MinecraftServerMonitoringService minecraftServerMonitoringService;
-    private final MinecraftServerMapper minecraftServerMapper;
-    private final MinecraftServerBidService minecraftServerBidService;
-    private final VoucherCodeService voucherCodeService;
 
     /// Страница листинга из материализованного снапшота (без сетевого I/O; тир зависит от online/plugin).
     /// Порядок операций: фильтр по {@code search} → пагинация, чтобы offset/limit считались от совпадений.
@@ -57,12 +54,16 @@ public class MinecraftServerService {
         return stream.skip(paging.from()).limit(paging.size()).toList();
     }
 
-    /// Совпадение по host/name/description (регистронезависимо; null-поля пропускаются).
+    /// Совпадение по адресам/name/description (регистронезависимо; null-поля пропускаются).
     private static boolean matches(MinecraftServerInfo info, String needle) {
-        return contains(info.host(), needle)
+        return containsAddress(info.hosts(), needle)
                 || contains(info.name(), needle)
                 || containsAvoidSpecialSymbols(info.motd(), needle)
                 || contains(info.description(), needle);
+    }
+
+    private static boolean containsAddress(List<MinecraftServerHostInfo> hosts, String needle) {
+        return hosts != null && hosts.stream().anyMatch(host -> contains(host.address(), needle));
     }
 
     private static boolean contains(String field, String needle) {
@@ -82,27 +83,51 @@ public class MinecraftServerService {
                 .orElse(null);
     }
 
-    /// Только online-обновляемая часть для набора серверов (веб-апп refresh, POST /servers/state).
-    public Map<Long, MinecraftServerStateInfo> getServerStates(Collection<Long> ids) {
-        final var result = new LinkedHashMap<Long, MinecraftServerStateInfo>();
-        for (final var id : ids) {
-            minecraftServerSnapshotStore.find(id).ifPresent(listing -> result.put(id, minecraftServerListingAssembler.toStateInfo(listing)));
-        }
-        return result;
+    /// Состояние набора серверов (веб-апп refresh, POST /servers/state); неизвестные id опускаются.
+    public List<MinecraftServerStateInfo> getServerStates(Collection<Long> ids) {
+        return ids.stream()
+                .map(minecraftServerSnapshotStore::find)
+                .flatMap(Optional::stream)
+                .map(minecraftServerListingAssembler::toStateInfo)
+                .toList();
     }
 
-    /// Tier-3 push: сервер-плагин прислал heartbeat → кладём в снапшот (протухание — по TTL в ассемблере).
-    /// No-op, если сервер ещё не в снапшоте (появится после ближайшего base-sync).
-    public void handleHeartbeat(Long serverId, MinecraftServerHeartbeatRequest request) {
-        final var snapshot = new MinecraftServerSnapshot.Plugin(
-                request.tps(),
-                request.uptimeMillis(),
-                request.difficulty(),
-                request.plugins(),
-                request.metadata(),
-                Instant.now()
-        );
-        minecraftServerSnapshotStore.putPlugin(serverId, snapshot);
+    /**
+     * Heartbeat плагина ({@link MinecraftServerInfo#heartbeat}): берём только то, за что отвечает плагин.
+     * Состояние пересобирается через {@link MinecraftServerStateInfo#heartbeat} — id сервера (из токена,
+     * а не тела), списки игроков и прочие поля отбрасываются; плагины — в снапшот; лицензия — в БД, если
+     * изменилась. Адреса, имя, motd, ядро и иконка из тела игнорируются: у них другие источники.
+     * Часть плагина гаснет по TTL в ассемблере. No-op для снапшота, если сервера в нём ещё нет.
+     */
+    public void handleHeartbeat(Long serverId, MinecraftServerInfo heartbeat) {
+        final var state = heartbeat.state();
+        if (state != null) {
+            final var players = state.players();
+            final var plugin = MinecraftServerStateInfo.builder(MinecraftServerStateInfo.heartbeat(
+                            state.tps(),
+                            state.ping(),
+                            state.uptime(),
+                            state.difficulty(),
+                            players != null ? players.online() : null,
+                            players != null ? players.max() : null))
+                    .minecraftServerId(serverId)
+                    .build();
+            minecraftServerSnapshotStore.putPlugin(serverId, new ObservedState(plugin, Instant.now()));
+        }
+
+        updateLicense(serverId, heartbeat.isLicense());
+    }
+
+    /// Описание, которое web-api узнаёт пингом: пишет в БД только изменение и обновляет снапшот.
+    public void updatePingDescription(Long serverId, MinecraftServerInfo pinged) {
+        final var core = pinged.core();
+        minecraftServerRepository.updatePingDescription(
+                serverId,
+                pinged.motd(),
+                pinged.iconBase64(),
+                core != null ? core.name() : null,
+                core != null ? core.version() : null
+        ).ifPresent(minecraftServerSnapshotStore::putBase);
     }
 
     /// Голос игрока за сервер (1..5). UPSERT по паре (сервер, игрок) → один голос на игрока,
@@ -136,26 +161,58 @@ public class MinecraftServerService {
         return minecraftServerRepository.findAllListed();
     }
 
-    /// Адреса для Tier-2 пинга (host + Java-порт) — для рефрешера.
-    public List<com.pixplaze.api.web.data.server.ServerPingTarget> findPingTargets() {
-        return minecraftServerRepository.findPingTargets();
+    /// Адреса всех серверов, сгруппированные по серверу — для base-sync листинга.
+    public Map<Long, ServerHosts> findAllHosts() {
+        return minecraftServerRepository.findAllHosts();
     }
 
-    public Optional<MinecraftServer> findByHost(String host) {
-        return minecraftServerRepository.findByHost(host);
+    /// Последнее сохранённое состояние всех серверов — для base-sync листинга.
+    public Map<Long, MinecraftServerState> findAllStates() {
+        return minecraftServerRepository.findAllStates();
     }
 
     public Optional<MinecraftServer> findById(Long id) {
         return minecraftServerRepository.findById(id);
     }
 
-    /// Создаёт сервер в статусе ACTIVE в момент успешной регистрации.
-    public MinecraftServer create(MinecraftServer server) {
-        return minecraftServerRepository.create(server, MinecraftServerStatus.ONLINE);
+    /// Создаёт сервер с адресами и строкой состояния в момент успешной регистрации. После коммита
+    /// сервер сразу попадает в снапшот: в листинг — с ближайшим publish, в пинг — со следующим тиком.
+    public MinecraftServer create(
+            MinecraftServer server,
+            MinecraftServerStateInfo.IntegrationStatus integrationStatus,
+            Collection<MinecraftServerHostInfo> hosts
+    ) {
+        final var created = minecraftServerRepository.create(server, integrationStatus, hosts);
+        afterCommit(() -> minecraftServerSnapshotStore.putServer(MinecraftServerListing.of(
+                created,
+                minecraftServerRepository.findHosts(created.getId()),
+                integrationStatus,
+                null,
+                ServerRatingAggregate.EMPTY
+        )));
+        return created;
     }
 
-    public MinecraftServer create(MinecraftServer server, MinecraftServerStatus minecraftServerStatus) {
-        return minecraftServerRepository.create(server, minecraftServerStatus);
+    /// Игровой адрес (HOST) сервера, если сервер существует.
+    public Optional<MinecraftServerHostInfo> findGameHost(Long serverId) {
+        return minecraftServerRepository.findHosts(serverId).gameHost();
+    }
+
+    /// Записывает адреса и после коммита кладёт полный их набор в снапшот: листинг и пинг видят
+    /// новый адрес сразу, не дожидаясь base-sync, а откат транзакции стор не затрагивает.
+    public void upsertHosts(Long serverId, Collection<MinecraftServerHostInfo> hosts) {
+        if (NullUtils.isNullOrEmpty(hosts)) {
+            return;
+        }
+
+        minecraftServerRepository.upsertHosts(serverId, hosts);
+        afterCommit(() -> minecraftServerSnapshotStore.putHosts(serverId, minecraftServerRepository.findHosts(serverId)));
+    }
+
+    /// Лицензию (online-mode) сообщает сам сервер; пишется только изменение, снапшот — после коммита.
+    public void updateLicense(Long serverId, Boolean isLicense) {
+        minecraftServerRepository.updateLicense(serverId, isLicense)
+                .ifPresent(updated -> afterCommit(() -> minecraftServerSnapshotStore.putBase(updated)));
     }
 
     /// Пакетно привязывает операторов; владелец помечается is_owner.
@@ -163,20 +220,14 @@ public class MinecraftServerService {
         minecraftServerRepository.linkOperators(serverId, operatorUuids, ownerUuid);
     }
 
-    public Optional<MinecraftServerStatus> getStatus(Long serverId) {
-        return minecraftServerRepository.getStatus(serverId);
+    public boolean isBanned(Long serverId) {
+        return minecraftServerRepository.isBanned(serverId);
     }
 
-    public void markActive(Long serverId) {
-        minecraftServerRepository.setStatus(serverId, MinecraftServerStatus.ONLINE);
-    }
-
-    public void markBanned(Long serverId) {
-        minecraftServerRepository.setStatus(serverId, MinecraftServerStatus.BANNED);
-    }
-
-    public void updateHost(Long serverId, String host) {
-        minecraftServerRepository.updateHost(serverId, host);
+    /// Бан; снапшот после коммита — листинг показывает BANNED сразу, не дожидаясь base-sync.
+    public void ban(Long serverId) {
+        minecraftServerRepository.ban(serverId)
+                .ifPresent(banned -> afterCommit(() -> minecraftServerSnapshotStore.putBase(banned)));
     }
 
     public void linkOperator(UUID playerUuid, Long serverId) {
@@ -204,61 +255,36 @@ public class MinecraftServerService {
         return minecraftServerRepository.getFavorite(profileId);
     }
 
-    @Transactional
-    public MinecraftServerBidResponse registerOnlineServer(ApplicationClientPrincipal clientPrincipal, String serverName, String serverHost, Integer serverPort) {
-        final var minecraftServerSnapshot = pingServer(serverHost, serverPort).orElseThrow(this.minecraftServerUnavailableException(serverHost, serverPort));
-        final var minecraftServer = new MinecraftServer()
-                .setName(serverName)
-                .setHost(serverHost);
-
-        create(minecraftServer);
-
-        return new MinecraftServerBidResponse(
-                null,
-                null,
-                null,
-                MinecraftServerInfo.preview(serverName, serverHost, serverPort, minecraftServerSnapshot.iconBase64())
-        );
-    }
-
-    @Transactional
-    public MinecraftServerBidResponse registerPluginServer(ApplicationClientPrincipal clientPrincipal, String serverName, String serverHost, Integer serverPort) {
-        final var minecraftServerSnapshot = pingServer(serverHost, serverPort).orElseThrow(this.minecraftServerUnavailableException(serverHost, serverPort));
-        final var voucherCode = voucherCodeService.issue(VoucherCodeType.INVITE_MINECRAFT_SERVER, 1);
-        final var minecraftServerBid = new MinecraftServerBid()
-                .setName(serverName)
-                .setHost(serverHost)
-                .setVoucherCodeId(voucherCode.getId())
-                .setProfileId(clientPrincipal.getId());
-        final var minecraftServerBidId = minecraftServerBidService.create(minecraftServerBid).getId();
-        return new MinecraftServerBidResponse(
-                minecraftServerBidId,
-                null,
-                voucherCode.getCode(),
-                MinecraftServerInfo.preview(serverName, serverHost, serverPort, minecraftServerSnapshot.iconBase64())
-        );
-    }
-
-    @Transactional
-    public MinecraftServerBidResponse createBid(ApplicationClientPrincipal clientPrincipal, String serverName, String serverHost, Integer serverPort, Boolean serverIntegration) {
-        if (serverIntegration) {
-            return registerOnlineServer(clientPrincipal, serverName, serverHost, serverPort);
-        }
-
-        return registerPluginServer(clientPrincipal, serverName, serverHost, serverPort);
-    }
-
-    public Optional<MinecraftServerSnapshot.Online> pingServer(
+    public Optional<MinecraftServerInfo> pingServer(
             @Size(min = 1, max = 128, message = "Хост должен содержать от 1 до 128 символов")
             @NotBlank(message = "Хост не может быть пустым")
             String host,
             Integer port
     ) {
         try {
-            return Optional.of(minecraftServerMonitoringService.pingOnline(host, port));
+            return Optional.of(minecraftServerMonitoringService.ping(host, port));
         } catch (IOException e) {
             return Optional.empty();
         }
+    }
+
+    private static void afterCommit(Runnable action) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            action.run();
+            return;
+        }
+
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                action.run();
+            }
+        });
+    }
+
+    /// Пинг с отказом: недоступный сервер → 503.
+    public MinecraftServerInfo requireOnline(String host, Integer port) {
+        return pingServer(host, port).orElseThrow(minecraftServerUnavailableException(host, port));
     }
 
     private Supplier<MinecraftServerUnavailableException> minecraftServerUnavailableException(String host, Integer port) {

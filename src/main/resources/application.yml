@@ -9,6 +9,9 @@ spring:
     driver-class-name: org.postgresql.Driver
   flyway:
     out-of-order: true
+    # Repeatable-миграции, применённые в БД, но отсутствующие локально (dev-seed'ы из db/dev при запуске
+    # без профиля dev), не считаются ошибкой; пропажа версионных миграций — по-прежнему ошибка.
+    ignore-migration-patterns: "repeatable:missing"
   jpa:
     hibernate:
       ddl-auto: validate

@@ -5,7 +5,7 @@ package com.pixplaze.api.web.data.server;
  * чтобы рефрешер не таскал полный листинг ради адреса.
  */
 public record ServerPingTarget(
-        long serverId,
+        long minecraftServerId,
         String host,
         int port
 ) {}

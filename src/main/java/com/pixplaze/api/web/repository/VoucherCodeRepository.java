@@ -31,6 +31,12 @@ public class VoucherCodeRepository {
                 .fetchOptionalInto(VoucherCode.class);
     }
 
+    public Optional<VoucherCode> findById(Long id) {
+        return dslContext.selectFrom(VOUCHER_CODE)
+                .where(VOUCHER_CODE.ID.eq(id))
+                .fetchOptionalInto(VoucherCode.class);
+    }
+
     public void create(VoucherCode voucherCode) {
         dslContext.insertInto(VOUCHER_CODE)
                 .set(VOUCHER_CODE.CODE, voucherCode.getCode())

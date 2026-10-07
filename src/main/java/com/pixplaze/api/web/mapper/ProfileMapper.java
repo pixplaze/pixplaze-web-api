@@ -1,6 +1,6 @@
 package com.pixplaze.api.web.mapper;
 
-import com.pixplaze.api.ext.data.Authority;
+import com.pixplaze.api.ext.data.auth.Authority;
 import com.pixplaze.api.web.data.db.tables.pojos.Profile;
 import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
 import org.mapstruct.Mapper;

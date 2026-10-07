@@ -1,7 +1,7 @@
 package com.pixplaze.api.web.configuration.json;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
-import com.pixplaze.api.web.data.server.RawMinecraftServer;
+import org.springframework.boot.jackson.autoconfigure.JsonMapperBuilderCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -9,19 +9,21 @@ import org.springframework.context.annotation.Profile;
 import tools.jackson.databind.PropertyNamingStrategies;
 import tools.jackson.databind.SerializationFeature;
 import tools.jackson.databind.json.JsonMapper;
-import tools.jackson.databind.module.SimpleModule;
 
 @Configuration
 public class JsonConfiguration {
-    private static final SimpleModule MINECRAFT_NATIVE_JSON_MODULE = new SimpleModule("MINECRAFT_NATIVE_JSON_MODULE")
-            .addDeserializer(RawMinecraftServer.class, new MinecraftNativeJsonDeserializer());
+
+    /// Без профиля работает автонастроенный JsonMapper Spring Boot — миксины подключаем и к нему.
+    @Bean
+    public JsonMapperBuilderCustomizer oauthJsonMixins() {
+        return OAuthJsonMixin::register;
+    }
 
     @Bean
     @Primary
     @Profile("dev")
     public JsonMapper devSerializer() {
-        return JsonMapper.builder()
-                .addModule(MINECRAFT_NATIVE_JSON_MODULE)
+        return OAuthJsonMixin.register(JsonMapper.builder())
                 .findAndAddModules()
                 .propertyNamingStrategy(PropertyNamingStrategies.LOWER_CAMEL_CASE)
                 .disable(SerializationFeature.FAIL_ON_EMPTY_BEANS)
@@ -32,8 +34,7 @@ public class JsonConfiguration {
     @Primary
     @Profile("prod")
     public JsonMapper prodSerializer() {
-        return JsonMapper.builder()
-                .addModule(MINECRAFT_NATIVE_JSON_MODULE)
+        return OAuthJsonMixin.register(JsonMapper.builder())
                 .findAndAddModules()
                 .propertyNamingStrategy(PropertyNamingStrategies.LOWER_CAMEL_CASE)
                 .changeDefaultPropertyInclusion(v -> v.withValueInclusion(JsonInclude.Include.NON_NULL))

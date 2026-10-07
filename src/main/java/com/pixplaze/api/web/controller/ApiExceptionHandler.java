@@ -1,7 +1,8 @@
 package com.pixplaze.api.web.controller;
 
-import com.pixplaze.api.web.data.dto.ErrorResponse;
-import com.pixplaze.api.web.exception.auth.DeviceAuthorizationError;
+import com.pixplaze.api.ext.data.ErrorResponse;
+import com.pixplaze.api.ext.data.oauth.OAuthError;
+import com.pixplaze.api.ext.data.oauth.OAuthErrorResponse;
 import com.pixplaze.api.web.exception.auth.DeviceAuthorizationException;
 import com.pixplaze.api.web.exception.http.BadRequestException;
 import com.pixplaze.api.web.exception.http.ConflictException;
@@ -31,7 +32,6 @@ import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
-import java.util.Map;
 
 /**
  * Единая точка перевода исключений в HTTP-ответ для MVC-пути (модель C: диспетчеризация по типу,
@@ -108,11 +108,11 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     /// OAuth token/authorize endpoint: формат тела диктуется стандартом (не {@link ErrorResponse}).
     @ExceptionHandler(DeviceAuthorizationException.class)
-    public ResponseEntity<Map<String, String>> deviceAuthorization(DeviceAuthorizationException e) {
-        final var status = e.getError() == DeviceAuthorizationError.SERVER_ERROR
+    public ResponseEntity<OAuthErrorResponse> deviceAuthorization(DeviceAuthorizationException e) {
+        final var status = e.getError() == OAuthError.SERVER_ERROR
                 ? HttpStatus.INTERNAL_SERVER_ERROR
                 : HttpStatus.BAD_REQUEST;
-        return ResponseEntity.status(status).body(Map.of("error", e.getError().getCode()));
+        return ResponseEntity.status(status).body(OAuthErrorResponse.of(e.getError()));
     }
 
     // НАМЕРЕННО НЕТ @ExceptionHandler(Exception.class): слепой catch-all перехватывал бы
