@@ -19,7 +19,7 @@ ES256-JWT (логин/пароль, OAuth 2.0 Device Flow по RFC 8628, refresh
 - **JDK 17** и **Maven 3.9+**
 - **Docker** + **Docker Compose**
 - **openssl** (генерация ключей)
-- Живая Postgres для jOOQ codegen
+- Docker для генерации jOOQ: схема поднимается во временном контейнере (Testcontainers)
 - Зависимость **`com.pixplaze.api:pixplaze-ext-api:1.0.0`** в локальном `~/.m2` (см. ниже)
 
 ### Удалённая машина (деплой)
@@ -36,8 +36,8 @@ cp .env.example .env
 | Переменная                                      | Назначение                                                                                  |
 |-------------------------------------------------|---------------------------------------------------------------------------------------------|
 | `PIXPLAZE_DB`                                   | имя БД                                                                                      |
-| `PIXPLAZE_DB_DRIVER`                            | `org.postgresql.Driver` (нужно для jOOQ codegen)                                            |
-| `PIXPLAZE_DB_URL`                               | JDBC-URL **для хост-сборки** (`localhost:5432`); в рантайме compose сам подставит host `db` |
+| `PIXPLAZE_DB_DRIVER`                            | не используется: генерация jOOQ подключается к своему контейнеру                            |
+| `PIXPLAZE_DB_URL`                               | JDBC-URL для `mvn flyway:*` с хоста (`localhost:5432`); в рантайме compose подставит `db`   |
 | `PIXPLAZE_DB_USERNAME` / `PIXPLAZE_DB_PASSWORD` | креды БД                                                                                    |
 | `PIXPLAZE_WEB_API_URL`                          | гетевей API (этот BE)                                                                       |
 | `PIXPLAZE_WEB_APP_URL`                          | гетевей веб-приложения                                                                      |
@@ -58,7 +58,7 @@ Base64 DER (P-256, PKCS#8/SEC1 для приватного, X.509 для пуб�
 
 ## Шаг 1. Сборка образа (на машине разработки)
 
-Нужна живая Postgres для jOOQ codegen — поднимем её через тот же compose.
+База для сборки не нужна: классы jOOQ генерируются по схеме из миграций во временном контейнере.
 
 ### 1.0 Установить локальную зависимость pixplaze-ext-api
 ```shell
@@ -67,24 +67,35 @@ mvn install:install-file \
   -DgroupId=com.pixplaze.api -DartifactId=pixplaze-ext-api -Dversion=1.0.0 -Dpackaging=jar
 ```
 
-#### 1.1 Поднять Postgres (для codegen; слушает 127.0.0.1:5432)
+#### 1.1 Собрать jar
 ```shell
-docker compose up -d db
+mvn -DskipTests package          # → target/pixplaze-web-api-1.0.1.jar
 ```
-> Шаг можно пропустить, если есть удалённая БД для разработки
+В фазе `generate-sources` по порядку: Testcontainers поднимает `postgres:16` (`codegen.postgres.image`),
+Flyway применяет к нему `db/migration`, jOOQ генерирует классы в `target/generated-sources/jooq`. Контейнер
+удаляется по завершении Maven. Первая сборка скачивает образы `postgres:16` и `testcontainers/ryuk`.
 
-#### 1.2 Загрузить переменные сборки (креды БД + ключи) в окружение
+С colima Testcontainers не находит сокет Docker сам — задайте окружение
+([документация Testcontainers](https://java.testcontainers.org/supported_docker_environment/)):
 ```shell
-set -a; . ./.env; set +a
-```
-
-#### 1.3 Применить миграции, затем собрать jar (codegen читает мигрированную схему)
-```shell
-mvn flyway:migrate
-mvn -DskipTests package          # → target/pixplaze-web-api-1.0.0.jar
+export DOCKER_HOST="unix://${HOME}/.colima/default/docker.sock"
+export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock
 ```
 
-#### 1.4 Собрать runtime-образ из jar
+Без Docker — по уже сгенерированным классам (пропускает контейнер, миграции и генерацию):
+```shell
+mvn -Djooq.codegen.skip=true -DskipTests package
+```
+
+#### 1.2 (по желанию) Локальная БД для запуска
+```shell
+docker compose up -d db          # Postgres на 127.0.0.1:5432
+set -a; . ./.env; set +a         # креды БД и ключи в окружение
+mvn flyway:migrate               # -Pdev — вместе с тестовыми seed'ами из db/dev
+```
+Приложение при старте и само применяет миграции; `mvn flyway:*` нужен для ручных `migrate`/`clean`/`info`.
+
+#### 1.3 Собрать runtime-образ из jar
 ```shell
 docker build --platform linux/amd64 -t pixplaze-web-api:latest --load .
 ```
@@ -95,7 +106,7 @@ docker build --platform linux/amd64 -t pixplaze-web-api:latest --load .
 docker build -t pixplaze-web-api:1.0.0 .
 ```
 
-#### 1.5 Выгрузить образ в архив
+#### 1.4 Выгрузить образ в архив
 ```shell
 docker save pixplaze-web-api:latest | gzip > pixplaze-web-api-1.0.0.tar.gz
 ```
