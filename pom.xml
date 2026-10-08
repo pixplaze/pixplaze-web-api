@@ -33,6 +33,11 @@
 		<spring-boot.version>4.0.3</spring-boot.version>
 		<jwt.version>0.12.6</jwt.version>
 		<mapstruct.version>1.6.3</mapstruct.version>
+		<gmavenplus.version>5.1.0</gmavenplus.version>
+		<!-- Генерация jOOQ: схема из миграций во временном контейнере Testcontainers (Docker обязателен).
+		     -Djooq.codegen.skip=true пропускает весь шаг: контейнер, миграции и генерацию. -->
+		<jooq.codegen.skip>false</jooq.codegen.skip>
+		<codegen.postgres.image>postgres:16</codegen.postgres.image>
 	</properties>
 	<dependencies>
 		<dependency>
@@ -179,6 +184,80 @@
 	</dependencies>
 	<build>
 		<plugins>
+			<!-- generate-sources, порядок важен: контейнер (gmavenplus) → миграции (Flyway) → генерация (jOOQ).
+			     Контейнер останавливает Testcontainers (Ryuk) при выходе из Maven. -->
+			<plugin>
+				<groupId>org.codehaus.gmavenplus</groupId>
+				<artifactId>gmavenplus-plugin</artifactId>
+				<version>${gmavenplus.version}</version>
+				<executions>
+					<execution>
+						<id>codegen-database</id>
+						<phase>generate-sources</phase>
+						<goals>
+							<goal>execute</goal>
+						</goals>
+						<configuration>
+							<skipScriptExecution>${jooq.codegen.skip}</skipScriptExecution>
+							<scripts>
+								<script><![CDATA[
+									def db = new org.testcontainers.postgresql.PostgreSQLContainer(project.properties['codegen.postgres.image'])
+									db.start()
+									project.properties['codegen.db.url'] = db.jdbcUrl
+									project.properties['codegen.db.username'] = db.username
+									project.properties['codegen.db.password'] = db.password
+									log.info("jOOQ codegen database: ${db.jdbcUrl}")
+								]]></script>
+							</scripts>
+						</configuration>
+					</execution>
+				</executions>
+				<dependencies>
+					<dependency>
+						<groupId>org.apache.groovy</groupId>
+						<artifactId>groovy</artifactId>
+						<version>${groovy.version}</version>
+					</dependency>
+					<dependency>
+						<groupId>org.testcontainers</groupId>
+						<artifactId>testcontainers-postgresql</artifactId>
+						<version>${testcontainers.version}</version>
+					</dependency>
+				</dependencies>
+			</plugin>
+			<plugin>
+				<groupId>org.flywaydb</groupId>
+				<artifactId>flyway-maven-plugin</artifactId>
+				<version>${flyway.version}</version>
+				<configuration>
+					<url>${env.PIXPLAZE_DB_URL}</url>
+					<user>${env.PIXPLAZE_DB_USERNAME}</user>
+					<password>${env.PIXPLAZE_DB_PASSWORD}</password>
+					<schemas>
+						<schema>public</schema>
+					</schemas>
+					<locations>
+						<location>filesystem:src/main/resources/db/migration</location>
+					</locations>
+					<outOfOrder>true</outOfOrder>
+				</configuration>
+				<executions>
+					<!-- Миграции во временную БД генерации; настройки выше (env) — для flyway:migrate/clean из консоли -->
+					<execution>
+						<id>codegen-migrate</id>
+						<phase>generate-sources</phase>
+						<goals>
+							<goal>migrate</goal>
+						</goals>
+						<configuration>
+							<skip>${jooq.codegen.skip}</skip>
+							<url>${codegen.db.url}</url>
+							<user>${codegen.db.username}</user>
+							<password>${codegen.db.password}</password>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
 			<plugin>
 				<groupId>org.jooq</groupId>
 				<artifactId>jooq-codegen-maven</artifactId>
@@ -191,10 +270,10 @@
 						</goals>
 						<configuration>
 							<jdbc>
-								<driver>${env.PIXPLAZE_DB_DRIVER}</driver>
-								<url>${env.PIXPLAZE_DB_URL}</url>
-								<user>${env.PIXPLAZE_DB_USERNAME}</user>
-								<password>${env.PIXPLAZE_DB_PASSWORD}</password>
+								<driver>org.postgresql.Driver</driver>
+								<url>${codegen.db.url}</url>
+								<user>${codegen.db.username}</user>
+								<password>${codegen.db.password}</password>
 							</jdbc>
 							<generator>
 								<database>
@@ -263,6 +342,26 @@
 					</execution>
 				</executions>
 			</plugin>
+			<!-- Сгенерированный jOOQ — всегда в исходниках, и при -Djooq.codegen.skip=true (сборка без Docker
+			     по ранее сгенерированным классам): сам jOOQ-плагин при пропуске каталог не добавляет. -->
+			<plugin>
+				<groupId>org.codehaus.mojo</groupId>
+				<artifactId>build-helper-maven-plugin</artifactId>
+				<executions>
+					<execution>
+						<id>jooq-sources</id>
+						<phase>generate-sources</phase>
+						<goals>
+							<goal>add-source</goal>
+						</goals>
+						<configuration>
+							<sources>
+								<source>target/generated-sources/jooq</source>
+							</sources>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-compiler-plugin</artifactId>
@@ -290,23 +389,6 @@
 							<artifactId>lombok</artifactId>
 						</exclude>
 					</excludes>
-				</configuration>
-			</plugin>
-			<plugin>
-				<groupId>org.flywaydb</groupId>
-				<artifactId>flyway-maven-plugin</artifactId>
-				<version>${flyway.version}</version>
-				<configuration>
-					<url>${env.PIXPLAZE_DB_URL}</url>
-					<user>${env.PIXPLAZE_DB_USERNAME}</user>
-					<password>${env.PIXPLAZE_DB_PASSWORD}</password>
-					<schemas>
-						<schema>public</schema>
-					</schemas>
-					<locations>
-						<location>filesystem:src/main/resources/db/migration</location>
-					</locations>
-					<outOfOrder>true</outOfOrder>
 				</configuration>
 			</plugin>
 		</plugins>
