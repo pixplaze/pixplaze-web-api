@@ -4,7 +4,6 @@ import com.pixplaze.api.web.service.auth.device.model.DeviceAuthorizationContext
 import com.pixplaze.api.ext.data.auth.Authority;
 import com.pixplaze.api.ext.data.auth.MinecraftServerAuthorizationDetails;
 import com.pixplaze.api.ext.data.auth.VerifiableAuthorizationTokenInfo;
-import com.pixplaze.api.ext.data.player.MinecraftPlayerInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerHostInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerStateInfo;
@@ -17,13 +16,15 @@ import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
 import com.pixplaze.api.web.data.user.MinecraftServerPrincipal;
 import com.pixplaze.api.web.data.voucher.VoucherCodeType;
 import com.pixplaze.api.web.exception.MinecraftPlayerAlreadyOwnedException;
+import com.pixplaze.api.web.exception.MinecraftServerAddressTakenException;
+import com.pixplaze.api.web.exception.http.ConflictException;
+import com.pixplaze.api.web.exception.http.ForbiddenException;
 import com.pixplaze.api.ext.data.oauth.OAuthError;
 import com.pixplaze.api.web.exception.auth.DeviceAuthorizationException;
 import com.pixplaze.api.web.exception.voucher.VoucherCodeValidationException;
-import com.pixplaze.api.web.mapper.MinecraftPlayerMapper;
 import com.pixplaze.api.web.mapper.MinecraftServerMapper;
-import com.pixplaze.api.web.service.MinecraftPlayerService;
 import com.pixplaze.api.web.service.MinecraftServerBidService;
+import com.pixplaze.api.web.service.MinecraftServerEnrollmentService;
 import com.pixplaze.api.web.service.MinecraftServerService;
 import com.pixplaze.api.web.service.VoucherCodeService;
 import com.pixplaze.api.web.service.auth.MinecraftServerAccessTokenService;
@@ -39,21 +40,17 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Predicate;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 @Service
 @RequiredArgsConstructor
 public class MinecraftServerAuthorizationStrategy implements DeviceAuthorizationStrategy<MinecraftServerAuthorizationDetails, VerifiableAuthorizationTokenInfo> {
     private final MinecraftServerService minecraftServerService;
     private final MinecraftServerBidService minecraftServerBidService;
-    private final MinecraftPlayerService minecraftPlayerService;
     private final MinecraftServerMapper minecraftServerMapper;
     private final VoucherCodeService voucherCodeService;
     private final MinecraftServerAccessTokenService minecraftServerAccessTokenService;
     private final RefreshTokenService refreshTokenService;
-    private final MinecraftPlayerMapper minecraftPlayerMapper;
+    private final MinecraftServerEnrollmentService minecraftServerEnrollmentService;
     private final JsonMapper jsonMapper;
 
     @org.springframework.beans.factory.annotation.Value("${app.url.api.gateway}")
@@ -139,65 +136,19 @@ public class MinecraftServerAuthorizationStrategy implements DeviceAuthorization
         return authorizeMinecraftServer(authorizationDetails, clientPrincipial);
     }
 
-    /// Регистрация: по заявке создаём сервер с адресами и записи об игроках, помечаем владельца,
-    /// связываем его игрока с профилем одобряющего, гасим ваучер и закрываем заявку.
+    /// Регистрация по открытой PLUGIN-заявке — в {@link MinecraftServerEnrollmentService#enrollWithPluginIntegration};
+    /// здесь только перевод доменных отказов в OAuth: занятый адрес — {@code invalid_request}, прочее — {@code access_denied}.
     private MinecraftServer registrateMinecraftServer(MinecraftServerAuthorizationDetails authorizationDetails, ApplicationClientPrincipal clientPrincipial) {
         final var minecraftServerInfo = authorizationDetails.minecraftServerInfo();
         final var minecraftServerBid = findPendingBid(minecraftServerInfo).orElseThrow(this::exceptionAccessDenied);
-        final var voucher = validateEnrollmentVoucher(authorizationDetails.inviteCode());
-
-        // Код из конфига должен соответствовать выданному в заявке и быть привязан к одобряющему владельцу.
-        if (!voucher.getId().equals(minecraftServerBid.getVoucherCodeId()) || !voucherCodeService.isBoundTo(voucher.getId(), clientPrincipial.getId())) {
-            throw exceptionAccessDenied();
-        }
-
-        final var playerList = minecraftServerInfo.state().players();
-        final var minecraftServerOperators = playerList.operators();
-        final var minecraftServerPlayers = Stream.concat(playerList.operators().stream(), playerList.list().stream())
-                .filter(Objects::nonNull)
-                .distinct()
-                .map(minecraftPlayerMapper::toEntity)
-                .collect(Collectors.toList());
-        // Владелец — оператор с ником из заявки; без него регистрация не проходит.
-        final var minecraftServerOwner = minecraftServerOperators.stream()
-                .filter(isMinecraftServerOwner(minecraftServerBid))
-                .findFirst()
-                .orElseThrow(this::exceptionAccessDenied);
-        final var minecraftServer = minecraftServerMapper.toEntity(minecraftServerInfo)
-                .setName(minecraftServerBid.getName())
-                .setOwnerProfileId(minecraftServerBid.getProfileId());
-        final var server = createMinecraftServer(minecraftServer, minecraftServerInfo.hosts());
-
-        minecraftPlayerService.createAll(minecraftServerPlayers);
-        minecraftServerService.linkOperators(server.getId(), minecraftServerOperators.stream().map(MinecraftPlayerInfo::uuid).toList(), minecraftServerOwner.uuid());
-
-        // Профиль владельца связываем с его MC-игроком, чтобы он сразу мог делать re-auth как оператор.
-        try {
-            minecraftPlayerService.linkProfile(minecraftServerOwner.uuid(), clientPrincipial.getId());
-        } catch (MinecraftPlayerAlreadyOwnedException e) {
-            throw new DeviceAuthorizationException(OAuthError.ACCESS_DENIED, e);
-        }
 
         try {
-            voucherCodeService.activate(voucher, clientPrincipial.getId());
-        } catch (VoucherCodeValidationException e) {
-            throw new DeviceAuthorizationException(OAuthError.ACCESS_DENIED, e);
-        }
-
-        // Заявку могли успеть отклонить или она истекла, пока сервер ждал подтверждения.
-        if (!minecraftServerBidService.approve(minecraftServerBid.getId())) {
-            throw exceptionAccessDenied();
-        }
-
-        return server;
-    }
-
-    private MinecraftServer createMinecraftServer(MinecraftServer minecraftServer, List<MinecraftServerHostInfo> hosts) {
-        try {
-            return minecraftServerService.create(minecraftServer, MinecraftServerStateInfo.IntegrationStatus.PLUGIN, hosts);
-        } catch (DuplicateKeyException e) {
-            // Игровой адрес уже занят другим сервером.
+            return minecraftServerEnrollmentService.enrollWithPluginIntegration(
+                    minecraftServerBid, minecraftServerInfo, authorizationDetails.inviteCode(), clientPrincipial.getId());
+        } catch (MinecraftServerAddressTakenException e) {
             throw new DeviceAuthorizationException(OAuthError.INVALID_REQUEST, e);
+        } catch (ConflictException | ForbiddenException | MinecraftPlayerAlreadyOwnedException e) {
+            throw new DeviceAuthorizationException(OAuthError.ACCESS_DENIED, e);
         }
     }
 
@@ -207,11 +158,6 @@ public class MinecraftServerAuthorizationStrategy implements DeviceAuthorization
         return minecraftServerInfo.host(MinecraftServerHostInfo.Type.HOST)
                 .flatMap(host -> minecraftServerBidService.findPendingByAddress(host.address(), host.port()))
                 .filter(bid -> bid.getIntegration() == MinecraftServerStateInfo.IntegrationStatus.PLUGIN);
-    }
-
-    private static @NonNull Predicate<MinecraftPlayerInfo> isMinecraftServerOwner(MinecraftServerBid minecraftServerBid) {
-        // Ники Minecraft уникальны без учёта регистра.
-        return operator -> minecraftServerBid.getOwnerUsername().equalsIgnoreCase(operator.username());
     }
 
     /// Повторная авторизация: подтверждать вправе любой оператор; забаненный — отказ; адреса и

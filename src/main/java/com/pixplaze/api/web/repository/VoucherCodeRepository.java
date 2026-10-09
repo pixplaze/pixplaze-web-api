@@ -3,7 +3,6 @@ package com.pixplaze.api.web.repository;
 import com.pixplaze.api.web.data.db.tables.pojos.Profile;
 import com.pixplaze.api.web.data.db.tables.pojos.VoucherCode;
 import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
-import com.pixplaze.api.web.exception.voucher.VoucherCodeValidationException;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
@@ -63,23 +62,23 @@ public class VoucherCodeRepository {
                 .execute();
     }
 
-    @Transactional
-    public void activate(VoucherCode voucherCode, Long profileId) {
-        final var voucherCodesRowsAffected = dslContext.update(VOUCHER_CODE)
+    /// Списывает одну активацию, если код не исчерпан и не истёк (атомарно, условным UPDATE).
+    /// {@code false} — списывать нечего.
+    public boolean consumeActivation(VoucherCode voucherCode) {
+        return dslContext.update(VOUCHER_CODE)
                 .set(VOUCHER_CODE.ACTIVATIONS_REMAINING, VOUCHER_CODE.ACTIVATIONS_REMAINING.minus(1))
                 .where(VOUCHER_CODE.ID.equal(voucherCode.getId()))
                 .and(VOUCHER_CODE.ACTIVATIONS_REMAINING.greaterThan(0).or(VOUCHER_CODE.ACTIVATIONS_LIMIT.eq(-1)))
                 .and(VOUCHER_CODE.EXPIRES_AT.isNull().or(VOUCHER_CODE.EXPIRES_AT.greaterOrEqual(DSL.currentOffsetDateTime())))
-                .execute();
+                .execute() > 0;
+    }
 
-        if (voucherCodesRowsAffected == 0) {
-            throw new VoucherCodeValidationException("Voucher code '%s' exhausted and can not be activated!".formatted(voucherCode.getCode()));
-        }
-
+    /// Отмечает активацию кода профилем. {@code false} — профиль уже активировал этот код.
+    public boolean markActivated(VoucherCode voucherCode, Long profileId) {
         // Привязка могла быть создана раньше (в заявке) со значением activated_at = NULL —
         // тогда активируем её. Если строки нет, создаём сразу активированной. Повторная
         // активация уже активированной (activated_at IS NOT NULL) строки даёт 0 и отвергается.
-        final var voucherCodesActivationsRowsAffected = dslContext.insertInto(VOUCHER_CODE_PROFILE)
+        return dslContext.insertInto(VOUCHER_CODE_PROFILE)
                 .set(VOUCHER_CODE_PROFILE.VOUCHER_CODE_ID, voucherCode.getId())
                 .set(VOUCHER_CODE_PROFILE.PROFILE_ID, profileId)
                 .set(VOUCHER_CODE_PROFILE.ACTIVATED_AT, DSL.currentOffsetDateTime())
@@ -87,16 +86,7 @@ public class VoucherCodeRepository {
                 .doUpdate()
                 .set(VOUCHER_CODE_PROFILE.ACTIVATED_AT, DSL.currentOffsetDateTime())
                 .where(VOUCHER_CODE_PROFILE.ACTIVATED_AT.isNull())
-                .execute();
-
-        if (voucherCodesActivationsRowsAffected == 0) {
-            throw new VoucherCodeValidationException("Voucher code has already been activated by profile id '%s'!".formatted(profileId));
-        }
-    }
-
-    @Transactional
-    public void activate(VoucherCode voucherCode, Profile profile) {
-        activate(voucherCode, profile.getId());
+                .execute() > 0;
     }
 
     /// Привязывает код к профилю без активации (заявка): activated_at остаётся NULL.

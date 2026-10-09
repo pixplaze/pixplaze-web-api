@@ -9,9 +9,11 @@ import com.pixplaze.api.web.data.user.MinecraftServerPrincipal;
 import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
 import com.pixplaze.api.web.exception.auth.InvalidRefreshTokenException;
 import com.pixplaze.api.web.repository.RefreshTokenRepository;
-import com.pixplaze.api.web.service.MinecraftServerService;
+import com.pixplaze.api.web.repository.MinecraftServerRepository;
+import com.pixplaze.api.web.service.server.event.MinecraftServerBanned;
 import lombok.Getter;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,18 +43,18 @@ public class RefreshTokenService {
 
     private final SecureRandom secureRandom = new SecureRandom();
     private final RefreshTokenRepository refreshTokenRepository;
-    private final MinecraftServerService minecraftServerService;
+    private final MinecraftServerRepository minecraftServerRepository;
 
     @Getter
     private final Duration expirationTerm;
 
     public RefreshTokenService(
             RefreshTokenRepository refreshTokenRepository,
-            MinecraftServerService minecraftServerService,
+            MinecraftServerRepository minecraftServerRepository,
             @Value("${app.security.auth.token.refresh.expiration.days}") int expirationInDays
     ) {
         this.refreshTokenRepository = refreshTokenRepository;
-        this.minecraftServerService = minecraftServerService;
+        this.minecraftServerRepository = minecraftServerRepository;
         this.expirationTerm = Duration.ofDays(expirationInDays);
     }
 
@@ -126,7 +128,7 @@ public class RefreshTokenService {
         }
         // Серверный токен забаненного сервера не обновляем и гасим всю его цепочку.
         final var serverId = current.getMinecraftServerId();
-        if (serverId != null && minecraftServerService.isBanned(serverId)) {
+        if (serverId != null && minecraftServerRepository.isBanned(serverId)) {
             refreshTokenRepository.revokeAllForServer(serverId);
             throw new InvalidRefreshTokenException("server_banned");
         }
@@ -204,9 +206,15 @@ public class RefreshTokenService {
         refreshTokenRepository.revokeAllForProfile(profileId);
     }
 
-    /** Отзывает все живые refresh-токены сервера (например, при бане). */
+    /** Отзывает все живые refresh-токены сервера. */
     public void revokeAllForServer(Long minecraftServerId) {
         refreshTokenRepository.revokeAllForServer(minecraftServerId);
+    }
+
+    /// Бан сервера: синхронно, в транзакции бана — отзыв не переживёт его откат и не отстанет от него.
+    @EventListener
+    public void onServerBanned(MinecraftServerBanned event) {
+        revokeAllForServer(event.minecraftServerId());
     }
 
     private String generateRawToken() {

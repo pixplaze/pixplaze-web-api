@@ -1,6 +1,6 @@
 package com.pixplaze.api.web.controller;
 
-import com.pixplaze.api.web.data.db.tables.pojos.VoucherCode;
+import com.pixplaze.api.web.data.dto.VoucherCodeValidationRequest;
 import com.pixplaze.api.web.data.voucher.VoucherCodeType;
 import com.pixplaze.api.web.exception.voucher.VoucherCodeValidationException;
 import com.pixplaze.api.web.service.VoucherCodeService;
@@ -13,10 +13,11 @@ import org.springframework.web.bind.annotation.*;
 public class VoucherCodeController {
     private final VoucherCodeService voucherCodeService;
 
+    /// Проверка кода по БД с учётом типа ({@code type == null} — любой тип).
     @PostMapping("/validate")
-    public boolean isVoucherCodeValid(@RequestBody VoucherCode voucherCode) {
+    public boolean isVoucherCodeValid(@RequestBody VoucherCodeValidationRequest request) {
         try {
-            voucherCodeService.validate(voucherCode);
+            voucherCodeService.load(request.code(), request.type());
             return true;
         } catch (VoucherCodeValidationException e) {
             return false;

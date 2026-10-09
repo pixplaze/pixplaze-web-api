@@ -82,7 +82,7 @@ public class MinecraftServerBidVerifier {
 
     private void approve(MinecraftServerBid bid) {
         try {
-            final var server = minecraftServerEnrollmentService.approveNative(bid);
+            final var server = minecraftServerEnrollmentService.enrollWithNativeIntegration(bid);
             log.info("Bid #{} confirmed by MOTD: server #{} at {}:{}", bid.getId(), server.getId(), bid.getHost(), bid.getPort());
         } catch (Exception e) {
             log.warn("Bid #{} confirmed by MOTD but not approved: {}", bid.getId(), e.getMessage());

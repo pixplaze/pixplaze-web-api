@@ -1,8 +1,8 @@
 package com.pixplaze.api.web.controller;
 
 import com.pixplaze.api.ext.data.auth.Authority;
-import com.pixplaze.api.web.data.db.tables.pojos.Profile;
 import com.pixplaze.api.web.data.dto.ProfileInfo;
+import com.pixplaze.api.web.data.dto.UserInfo;
 import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
 import com.pixplaze.api.web.service.ProfileService;
 import lombok.AllArgsConstructor;
@@ -23,7 +23,7 @@ public class ProfileController {
 
     @PreAuthorize("isAuthenticated()")
     @GetMapping("/{profileId}")
-    public ProfileInfo getProfile(
+    public UserInfo getProfile(
             @PathVariable(required = false) Long profileId,
             @AuthenticationPrincipal ApplicationClientPrincipal clientPrincipal
     ) {
@@ -36,12 +36,12 @@ public class ProfileController {
             throw new IllegalArgumentException("Profile id must be specified!");
         }
 
-        return profileService.getProfileInfo(profileId);
+        return profileService.getUserInfo(profileId);
     }
 
     @PreAuthorize("hasRole('ADMIN')")
     @GetMapping
-    public List<Profile> getProfiles(
+    public List<ProfileInfo> getProfiles(
             @RequestParam(required = false) Integer limit,
             @RequestParam(required = false) Integer offset
     ) {

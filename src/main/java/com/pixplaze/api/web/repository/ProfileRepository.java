@@ -28,7 +28,7 @@ public class ProfileRepository {
         return profile;
     }
 
-    public List<Profile> getUsers(Integer limit, Integer offset) {
+    public List<Profile> getProfiles(Integer limit, Integer offset) {
         return dslContext.select()
                 .from(PROFILE)
                 .limit(limit)
@@ -59,7 +59,7 @@ public class ProfileRepository {
     }
 
     public boolean existsByEmail(String email) {
-        throw new NotImplementedException();
+        return dslContext.fetchExists(PROFILE, PROFILE.EMAIL.equalIgnoreCase(email));
     }
 
     public Optional<Profile> findByUsername(String username) {
@@ -70,7 +70,7 @@ public class ProfileRepository {
         );
     }
 
-    /// Выданные профилю роли сверх выводимых ({@code profile_role}), коды {@link com.pixplaze.api.ext.data.auth.Authority.Role#code}.
+    /// Выданные профилю роли сверх выводимых ({@code profile_role}), коды {@link com.pixplaze.api.ext.data.auth.Authority.Role}.
     public List<String> findGrantedRoleCodes(Long profileId) {
         return dslContext.select(PROFILE_ROLE.ROLE_CODE)
                 .from(PROFILE_ROLE)

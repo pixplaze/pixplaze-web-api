@@ -34,19 +34,17 @@ import java.util.Map;
 @Tag(name = "Аутентификация")
 @RequestMapping("/auth")
 public class AuthorizationController {
-    // Кука refresh-токена scoped на /auth, чтобы ходить и на /auth/refresh, и на /auth/sign-out.
-    private static final String REFRESH_COOKIE_PATH = "/auth";
-
     private final AuthorizationService authorizationService;
     private final DeviceAuthorizationService deviceAuthorizationService;
     private final DeviceResponseMapper deviceResponseMapper;
     private final MinecraftServerAccessTokenService minecraftServerAccessTokenService;
+    private final RefreshTokenCookies refreshTokenCookies;
 
     @Operation(summary = "Регистрация пользователя")
     @PostMapping("/sign-up")
     public ResponseEntity<AuthorizationTokenInfo> signUp(@RequestBody @Valid SignUpRequest requestInfo) {
         final var responseInfo = authorizationService.signUp(requestInfo);
-        final var responseCookie = authorizationService.createRefreshTokenCookie(responseInfo.refreshToken(), REFRESH_COOKIE_PATH);
+        final var responseCookie = refreshTokenCookies.issue(responseInfo.refreshToken());
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, responseCookie.toString())
                 .body(responseInfo.safe());
@@ -56,7 +54,7 @@ public class AuthorizationController {
     @PostMapping("/sign-in")
     public ResponseEntity<AuthorizationTokenInfo> signIn(@RequestBody @Valid SignInRequest requestInfo) {
         final var responseInfo = authorizationService.signIn(requestInfo);
-        final var responseCookie = authorizationService.createRefreshTokenCookie(responseInfo.refreshToken(), REFRESH_COOKIE_PATH);
+        final var responseCookie = refreshTokenCookies.issue(responseInfo.refreshToken());
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, responseCookie.toString())
                 .body(responseInfo.safe());
@@ -66,11 +64,11 @@ public class AuthorizationController {
     @PostMapping("/sign-out")
     public ResponseEntity<Void> signOut(
             @AuthenticationPrincipal ApplicationClientPrincipal principal,
-            @CookieValue(name = "refreshToken", required = false) String refreshToken,
+            @CookieValue(name = RefreshTokenCookies.NAME, required = false) String refreshToken,
             @RequestParam(defaultValue = "false") Boolean fromAll
     ) {
         authorizationService.signOut(refreshToken, principal, fromAll);
-        final var clearedCookie = authorizationService.createClearedRefreshTokenCookie(REFRESH_COOKIE_PATH);
+        final var clearedCookie = refreshTokenCookies.clear();
         return ResponseEntity.noContent()
                 .header(HttpHeaders.SET_COOKIE, clearedCookie.toString())
                 .build();
@@ -78,10 +76,10 @@ public class AuthorizationController {
 
     @PostMapping("/refresh")
     public ResponseEntity<AuthorizationTokenInfo> refresh(
-            @CookieValue(name = "refreshToken") String refreshToken
+            @CookieValue(name = RefreshTokenCookies.NAME) String refreshToken
     ) {
         final var tokens = authorizationService.refresh(refreshToken);
-        final var responseCookie = authorizationService.createRefreshTokenCookie(tokens.refreshToken(), REFRESH_COOKIE_PATH);
+        final var responseCookie = refreshTokenCookies.issue(tokens.refreshToken());
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, responseCookie.toString())

@@ -5,7 +5,6 @@ import com.pixplaze.api.web.configuration.properties.CorsProperties;
 import com.pixplaze.api.web.configuration.security.filter.JwtAuthenticationFilter;
 import com.pixplaze.api.web.data.user.ClientPrincipal;
 import com.pixplaze.api.web.service.ExceptionHandlerService;
-import com.pixplaze.api.web.service.ProfileService;
 import com.pixplaze.api.web.service.auth.ClientPrincipalReader;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -13,8 +12,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.AuthenticationProvider;
-import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.http.HttpMethod;
@@ -37,7 +34,6 @@ import static org.springframework.security.config.http.SessionCreationPolicy.STA
 @EnableConfigurationProperties({CorsProperties.class, AccessTokenProperties.class})
 public class SecurityConfiguration {
     private final ClientPrincipalReader clientPrincipalReader;
-    private final ProfileService profileService;
     private final ExceptionHandlerService exceptionHandlerService;
     private final CorsProperties corsProperties;
 
@@ -109,13 +105,9 @@ public class SecurityConfiguration {
         return new BCryptPasswordEncoder();
     }
 
-    @Bean
-    public AuthenticationProvider authenticationProvider() {
-        DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider(profileService.getUserDetailsService());
-        authProvider.setPasswordEncoder(passwordEncoder());
-        return authProvider;
-    }
-
+    /// Вход по паролю: {@code DaoAuthenticationProvider} Spring собирает сам из единственного
+    /// {@code UserDetailsService} ({@link com.pixplaze.api.web.service.auth.ProfileUserDetailsService})
+    /// и бина {@link PasswordEncoder}.
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration config) {
         return config.getAuthenticationManager();

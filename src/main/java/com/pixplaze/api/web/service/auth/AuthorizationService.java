@@ -15,19 +15,18 @@ import com.pixplaze.api.web.data.user.MinecraftServerPrincipal;
 import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
 import com.pixplaze.api.web.data.voucher.VoucherCodeType;
 import com.pixplaze.api.web.exception.auth.InvalidRefreshTokenException;
+import com.pixplaze.api.web.exception.http.ConflictException;
 import com.pixplaze.api.web.service.MinecraftPlayerService;
 import com.pixplaze.api.web.service.MinecraftServerService;
 import com.pixplaze.api.web.service.ProfileService;
 import com.pixplaze.api.web.service.VoucherCodeService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseCookie;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
 
 @Service
 @RequiredArgsConstructor
@@ -53,17 +52,25 @@ public class AuthorizationService {
     public AuthorizationTokenInfo signUp(SignUpRequest request) {
 
         VoucherCode voucherCode = voucherCodeService.load(request.inviteCode(), VoucherCodeType.INVITE);
-        var profile = new Profile()
+        final var profile = new Profile()
                 .setName(request.username())
                 .setEmail(request.email())
                 .setPassword(passwordEncoder.encode(request.password()));
-        var clientPrincipial = profileService.toApplicationClientPrincipal(profile);
+        final var clientPrincipial = profileService.toApplicationClientPrincipal(profile);
+
+        if (profileService.existsByUsername(request.username())) {
+            throw new ConflictException("Username '%s' is already taken!".formatted(request.username()));
+        }
+        if (profileService.existsByEmail(request.email())) {
+            throw new ConflictException("Email '%s' is already taken!".formatted(request.email()));
+        }
 
         try {
             var id = profileService.create(profile).getId();
             clientPrincipial.setId(id);
-        } catch (Exception e) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, e.getMessage(), e);
+        } catch (DuplicateKeyException e) {
+            // Гонка двух регистраций с одним именем или email: проверка выше её не закрывает.
+            throw new ConflictException("Username or email is already taken!");
         }
 
         voucherCodeService.activate(voucherCode, profile);
@@ -145,24 +152,5 @@ public class AuthorizationService {
         } else if (refreshToken != null) {
             refreshTokenService.revoke(refreshToken);
         }
-    }
-
-    public ResponseCookie createRefreshTokenCookie(String refreshToken, String path) {
-        return ResponseCookie.from("refreshToken", refreshToken)
-                .httpOnly(true) // Защита от XSS (JS не сможет прочитать куку)
-                .secure(true)   // Только через HTTPS
-                .path(path)     // Кука будет отправляться только на эндпоинт обновления
-                .maxAge(refreshTokenService.getExpirationTerm())
-                .build();
-    }
-
-    /** Кука, удаляющая refresh-токен в браузере (maxAge=0). */
-    public ResponseCookie createClearedRefreshTokenCookie(String path) {
-        return ResponseCookie.from("refreshToken", "")
-                .httpOnly(true)
-                .secure(true)
-                .path(path)
-                .maxAge(0)
-                .build();
     }
 }

@@ -1,14 +1,13 @@
 package com.pixplaze.api.web.data.dto;
 
-import com.pixplaze.api.ext.data.player.MinecraftPlayerInfo;
-import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
-import com.pixplaze.api.web.data.db.tables.pojos.Profile;
+import java.time.OffsetDateTime;
 
-import java.util.List;
-
+/// Профиль для API: строка {@code profile} без хэша пароля.
 public record ProfileInfo(
-        Profile profile,
-        List<MinecraftPlayerInfo> players,
-        List<MinecraftServerInfo> servers
+        Long id,
+        String name,
+        String email,
+        OffsetDateTime createdAt,
+        OffsetDateTime expiresAt
 ) {
 }

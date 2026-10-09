@@ -109,6 +109,11 @@ public class MinecraftServerRepository {
                 record.get(MINECRAFT_SERVER_HOST.TYPE));
     }
 
+    /// Сколько из {@code ids} — существующие серверы (без учёта повторов).
+    public int countExisting(Collection<Long> ids) {
+        return dslContext.fetchCount(MINECRAFT_SERVER, MINECRAFT_SERVER.ID.in(ids));
+    }
+
     public Optional<MinecraftServer> findById(Long id) {
         return dslContext.select()
                 .from(MINECRAFT_SERVER)

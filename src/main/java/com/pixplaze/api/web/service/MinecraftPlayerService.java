@@ -2,6 +2,7 @@ package com.pixplaze.api.web.service;
 
 import com.pixplaze.api.ext.data.player.MinecraftPlayerInfo;
 import com.pixplaze.api.web.data.db.tables.pojos.MinecraftPlayer;
+import com.pixplaze.api.web.exception.MinecraftPlayerAlreadyOwnedException;
 import com.pixplaze.api.web.repository.MinecraftPlayerRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -27,8 +28,12 @@ public class MinecraftPlayerService {
 
     /// Привязка игрока к профилю: no-op если уже привязан к тому же профилю,
     /// исключение — если к другому.
+    /// Привязывает игрока к профилю идемпотентно.
+    /// @throws MinecraftPlayerAlreadyOwnedException игрок уже привязан к другому профилю
     public void linkProfile(UUID playerUuid, Long profileId) {
-        minecraftPlayerRepository.linkProfile(playerUuid, profileId);
+        if (!minecraftPlayerRepository.linkProfile(playerUuid, profileId)) {
+            throw new MinecraftPlayerAlreadyOwnedException(playerUuid);
+        }
     }
 
     public MinecraftPlayer createIfNotExist(MinecraftPlayer minecraftPlayer) {

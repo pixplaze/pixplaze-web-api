@@ -1,12 +1,12 @@
 package com.pixplaze.api.web.service;
 
 import com.pixplaze.api.ext.data.auth.Authority;
-import com.pixplaze.api.ext.data.player.MinecraftPlayerInfo;
 import com.pixplaze.api.web.configuration.security.SecurityConfiguration;
 import com.pixplaze.api.ext.data.auth.MinecraftServerTargets;
 import com.pixplaze.api.web.data.db.tables.pojos.MinecraftPlayer;
 import com.pixplaze.api.web.data.db.tables.pojos.Profile;
 import com.pixplaze.api.web.data.dto.ProfileInfo;
+import com.pixplaze.api.web.data.dto.UserInfo;
 import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
 import com.pixplaze.api.web.mapper.MinecraftPlayerMapper;
 import com.pixplaze.api.web.mapper.MinecraftServerMapper;
@@ -14,7 +14,6 @@ import com.pixplaze.api.web.mapper.ProfileMapper;
 import com.pixplaze.api.web.repository.ProfileRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 
@@ -44,8 +43,19 @@ public class ProfileService {
         return profileRepository.create(profile);
     }
 
-    public List<Profile> getProfiles(Integer limit, Integer offset) {
-        return profileRepository.getUsers(limit, offset);
+    public boolean existsByUsername(String username) {
+        return profileRepository.existsByUsername(username);
+    }
+
+    /// Без учёта регистра, в отличие от UNIQUE в БД.
+    public boolean existsByEmail(String email) {
+        return profileRepository.existsByEmail(email);
+    }
+
+    public List<ProfileInfo> getProfiles(Integer limit, Integer offset) {
+        return profileRepository.getProfiles(limit, offset).stream()
+                .map(profileMapper::toInfo)
+                .toList();
     }
 
     public List<Profile> getProfiles(String username) {
@@ -67,8 +77,8 @@ public class ProfileService {
                 .orElseThrow(() -> new UsernameNotFoundException("Профиль не найден: " + id));
     }
 
-    public ProfileInfo getProfileInfo(Long profileId) {
-        final var profile = getById(profileId).setPassword(null);
+    public UserInfo getUserInfo(Long profileId) {
+        final var profile = profileMapper.toInfo(getById(profileId));
         final var profilePlayers = minecraftPlayerService.findLinkedByProfileId(profileId)
                 .stream()
                 .map(minecraftPlayerMapper::toInfo)
@@ -78,22 +88,7 @@ public class ProfileService {
                 .map(minecraftServerMapper::toInfo)
                 .toList();
 
-        return new ProfileInfo(profile, profilePlayers, profileFavoriteServers);
-    }
-
-    /**
-     * Получение пользователя по имени пользователя
-     * <p>
-     * Нужен для Spring Security
-     *
-     * @return пользователь
-     * @deprecated переписать на реализоцию интерфейса с маппингом
-     */
-    @Deprecated(forRemoval = true)
-    public UserDetailsService getUserDetailsService() {
-        return username -> ProfileService.this.profileRepository.findByUsername(username)
-                .map(profileMapper::toApplicationClientPrincipal)
-                .orElseThrow(() -> new UsernameNotFoundException("Пользователь не найден"));
+        return new UserInfo(profile, profilePlayers, profileFavoriteServers);
     }
 
     public ApplicationClientPrincipal toApplicationClientPrincipal(Profile profile) {

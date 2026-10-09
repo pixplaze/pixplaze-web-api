@@ -2,6 +2,7 @@ package com.pixplaze.api.web.mapper;
 
 import com.pixplaze.api.ext.data.auth.Authority;
 import com.pixplaze.api.web.data.db.tables.pojos.Profile;
+import com.pixplaze.api.web.data.dto.ProfileInfo;
 import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
@@ -16,4 +17,6 @@ public interface ProfileMapper {
     @Mapping(target = "authority", expression = "java(Authority.as(Authority.Role.USER).from(Authority.Source.APPLICATION_AUTHORIZED_DEVICE).unauthorized())")
     @Mapping(target = "ipAddress", ignore = true)
     ApplicationClientPrincipal toApplicationClientPrincipal(Profile profile);
+
+    ProfileInfo toInfo(Profile profile);
 }

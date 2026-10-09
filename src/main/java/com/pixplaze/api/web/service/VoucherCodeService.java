@@ -8,6 +8,7 @@ import com.pixplaze.api.web.repository.VoucherCodeRepository;
 import lombok.RequiredArgsConstructor;
 import org.jspecify.annotations.NonNull;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
 import java.time.OffsetDateTime;
@@ -73,11 +74,20 @@ public class VoucherCodeService {
     }
 
     public void activate(VoucherCode voucherCode, Profile profile) {
-        voucherCodeRepository.activate(voucherCode, profile);
+        activate(voucherCode, profile.getId());
     }
 
+    /// Активирует код профилем: списывает активацию и отмечает её. Оба шага — одной транзакцией,
+    /// чтобы отказ второго вернул списанную активацию.
+    /// @throws VoucherCodeValidationException код исчерпан или истёк, либо профиль уже активировал его
+    @Transactional
     public void activate(VoucherCode voucherCode, Long profileId) {
-        voucherCodeRepository.activate(voucherCode, profileId);
+        if (!voucherCodeRepository.consumeActivation(voucherCode)) {
+            throw new VoucherCodeValidationException("Voucher code '%s' exhausted and can not be activated!".formatted(voucherCode.getCode()));
+        }
+        if (!voucherCodeRepository.markActivated(voucherCode, profileId)) {
+            throw new VoucherCodeValidationException("Voucher code has already been activated by profile id '%s'!".formatted(profileId));
+        }
     }
 
     /// Привязывает код к профилю без активации (заявка).

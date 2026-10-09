@@ -1,10 +1,14 @@
 package com.pixplaze.api.web.service;
 
+import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerStateInfo;
 import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServerBid;
 import com.pixplaze.api.web.data.dto.MinecraftServerBidInfo;
+import com.pixplaze.api.web.data.dto.MinecraftServerBidRequest;
+import com.pixplaze.api.web.data.dto.MinecraftServerBidResponse;
 import com.pixplaze.api.web.data.server.MinecraftServerBidStatus;
 import com.pixplaze.api.web.data.voucher.VoucherCodeType;
+import com.pixplaze.api.web.exception.MinecraftServerAddressTakenException;
 import com.pixplaze.api.web.exception.http.ConflictException;
 import com.pixplaze.api.web.repository.MinecraftServerBidRepository;
 import com.pixplaze.api.web.repository.MinecraftServerRepository;
@@ -12,7 +16,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
 import java.time.OffsetDateTime;
@@ -26,6 +30,8 @@ public class MinecraftServerBidService {
     private final MinecraftServerBidRepository minecraftServerBidRepository;
     private final MinecraftServerRepository minecraftServerRepository;
     private final VoucherCodeService voucherCodeService;
+    private final MinecraftServerService minecraftServerService;
+    private final TransactionTemplate transactionTemplate;
 
     /// Срок жизни открытой заявки от создания; после него она закрывается как EXPIRED и освобождает адрес.
     @Value("${app.servers.bids.ttl:7d}")
@@ -36,13 +42,38 @@ public class MinecraftServerBidService {
     }
 
     /**
+     * Заявка владельца на регистрацию сервера: возвращает код заявки и превью сервера. Без плагина
+     * сервер обязан отвечать на пинг (код подтверждается через его MOTD), иначе 503; с плагином пинг
+     * нужен только для иконки в превью, и недоступный сервер её просто не получит.
+     *
+     * <p>Пинг идёт до транзакции, чтобы соединение с БД не ждало сетевого таймаута; запись заявки —
+     * отдельной транзакцией.
+     */
+    public MinecraftServerBidResponse createBid(MinecraftServerBidRequest request, Long ownerProfileId) {
+        final var integration = Boolean.TRUE.equals(request.isIntegration())
+                ? MinecraftServerStateInfo.IntegrationStatus.PLUGIN
+                : MinecraftServerStateInfo.IntegrationStatus.NATIVE;
+
+        final var online = integration == MinecraftServerStateInfo.IntegrationStatus.NATIVE
+                ? Optional.of(minecraftServerService.requireOnline(request.host(), request.port()))
+                : minecraftServerService.pingServer(request.host(), request.port());
+
+        final var code = transactionTemplate.execute(status -> issueBid(
+                request.name(), request.host(), request.port(), request.ownerUsername(), integration, ownerProfileId
+        ));
+        final var preview = MinecraftServerInfo.preview(
+                request.name(), request.host(), request.port(), online.map(MinecraftServerInfo::iconBase64).orElse(null)
+        );
+        return new MinecraftServerBidResponse(code, preview);
+    }
+
+    /**
      * Создаёт заявку владельца и выпускает её одноразовый код, привязанный к профилю владельца.
      * С плагином это enrollment-ваучер для конфига плагина (сервер предъявит его при регистрации),
      * без плагина — код для MOTD, по которому принадлежность сервера подтверждается пингом.
-     * Код из MOTD публичен, поэтому сам по себе ничего не авторизует. Возвращает заявку и сырой код.
+     * Код из MOTD публичен, поэтому сам по себе ничего не авторизует. Возвращает сырой код.
      */
-    @Transactional
-    public BidResult createBid(
+    private String issueBid(
             String name,
             String host,
             Integer port,
@@ -52,14 +83,13 @@ public class MinecraftServerBidService {
     ) {
         // Сервер с этим игровым адресом уже зарегистрирован: регистрация по такой заявке всё равно упадёт.
         if (minecraftServerRepository.isGameHostTaken(host, port)) {
-            throw new ConflictException("A server at '%s:%s' is already registered!".formatted(host, port));
+            throw new MinecraftServerAddressTakenException(host, port);
         }
 
         final var voucher = voucherCodeService.issue(VoucherCodeType.INVITE_MINECRAFT_SERVER, 1);
 
-        final MinecraftServerBid minecraftServerBid;
         try {
-            minecraftServerBid = create(new MinecraftServerBid()
+            create(new MinecraftServerBid()
                     .setName(name)
                     .setHost(host)
                     .setPort(port)
@@ -73,7 +103,7 @@ public class MinecraftServerBidService {
 
         voucherCodeService.bind(voucher.getId(), ownerProfileId);
 
-        return new BidResult(minecraftServerBid, voucher.getCode());
+        return voucher.getCode();
     }
 
     /// Открытая заявка на игровой адрес.
@@ -123,6 +153,4 @@ public class MinecraftServerBidService {
                         bid.ownerUsername(), bid.applicant(), bid.createdAt(), bid.createdAt().plus(bidTtl)))
                 .toList();
     }
-
-    public record BidResult(MinecraftServerBid bid, String code) {}
 }

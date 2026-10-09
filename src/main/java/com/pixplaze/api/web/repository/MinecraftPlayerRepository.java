@@ -3,7 +3,6 @@ package com.pixplaze.api.web.repository;
 import com.pixplaze.api.ext.data.player.MinecraftPlayerInfo;
 import com.pixplaze.api.web.data.db.tables.pojos.MinecraftPlayer;
 import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
-import com.pixplaze.api.web.exception.MinecraftPlayerAlreadyOwnedException;
 import com.pixplaze.api.web.exception.http.NotImplementedException;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
@@ -179,13 +178,13 @@ public class MinecraftPlayerRepository {
     }
 
     /// Привязывает игрока к профилю идемпотентно: если игрок уже привязан к ТОМУ ЖЕ профилю —
-    /// ничего не делает; если не привязан — создаёт связь. Бросает
-    /// {@link MinecraftPlayerAlreadyOwnedException}, только если игрок уже привязан к ДРУГОМУ профилю.
-    public void linkProfile(UUID playerUuid, Long profileId) {
+    /// ничего не делает; если не привязан — создаёт связь. {@code false} — игрок уже привязан к
+    /// ДРУГОМУ профилю, и связь не изменена.
+    public boolean linkProfile(UUID playerUuid, Long profileId) {
         Objects.requireNonNull(playerUuid, "'playerUuid' must not be null!");
         Objects.requireNonNull(profileId, "'profileId' must not be null!");
 
-        final var resultProfileId = dslContext.insertInto(MINECRAFT_PLAYER_PROFILE)
+        final var ownerProfileId = dslContext.insertInto(MINECRAFT_PLAYER_PROFILE)
                 .set(MINECRAFT_PLAYER_PROFILE.PROFILE_ID, profileId)
                 .set(MINECRAFT_PLAYER_PROFILE.MINECRAFT_PLAYER_UUID, playerUuid)
                 .onConflict(MINECRAFT_PLAYER_PROFILE.MINECRAFT_PLAYER_UUID)
@@ -194,8 +193,6 @@ public class MinecraftPlayerRepository {
                 .returning(MINECRAFT_PLAYER_PROFILE.PROFILE_ID)
                 .fetchOne(MINECRAFT_PLAYER_PROFILE.PROFILE_ID);
 
-        if (!profileId.equals(resultProfileId)) {
-            throw new MinecraftPlayerAlreadyOwnedException(playerUuid);
-        }
+        return profileId.equals(ownerProfileId);
     }
 }

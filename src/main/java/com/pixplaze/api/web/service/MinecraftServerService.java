@@ -9,21 +9,25 @@ import com.pixplaze.api.web.data.server.ObservedState;
 import com.pixplaze.api.web.data.server.ServerHosts;
 import com.pixplaze.api.web.data.server.ServerRatingAggregate;
 import com.pixplaze.api.web.exception.MinecraftServerUnavailableException;
+import com.pixplaze.api.web.exception.http.BadRequestException;
 import com.pixplaze.api.web.exception.http.NotFoundException;
 import com.pixplaze.api.web.repository.MinecraftPlayerRepository;
 import com.pixplaze.api.web.repository.MinecraftServerRepository;
 import com.pixplaze.api.web.service.server.MinecraftServerListingAssembler;
 import com.pixplaze.api.web.service.server.MinecraftServerSnapshotStore;
-import com.pixplaze.api.web.service.server.model.MinecraftServerListing;
+import com.pixplaze.api.web.service.server.event.MinecraftServerBanned;
+import com.pixplaze.api.web.service.server.event.MinecraftServerChanged;
+import com.pixplaze.api.web.service.server.event.MinecraftServerCreated;
+import com.pixplaze.api.web.service.server.event.MinecraftServerHostsChanged;
+import com.pixplaze.api.web.service.server.event.MinecraftServerRatingChanged;
 import com.pixplaze.api.web.util.NullUtils;
 import com.pixplaze.api.web.util.PagingUtils;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.io.IOException;
 import java.time.Instant;
@@ -38,6 +42,7 @@ public class MinecraftServerService {
     private final MinecraftServerSnapshotStore minecraftServerSnapshotStore;
     private final MinecraftServerListingAssembler minecraftServerListingAssembler;
     private final MinecraftServerMonitoringService minecraftServerMonitoringService;
+    private final ApplicationEventPublisher eventPublisher;
 
     /// Страница листинга из материализованного снапшота (без сетевого I/O; тир зависит от online/plugin).
     /// Порядок операций: фильтр по {@code search} → пагинация, чтобы offset/limit считались от совпадений.
@@ -127,12 +132,12 @@ public class MinecraftServerService {
                 pinged.iconBase64(),
                 core != null ? core.name() : null,
                 core != null ? core.version() : null
-        ).ifPresent(minecraftServerSnapshotStore::putBase);
+        ).ifPresent(updated -> eventPublisher.publishEvent(new MinecraftServerChanged(updated)));
     }
 
     /// Голос игрока за сервер (1..5). UPSERT по паре (сервер, игрок) → один голос на игрока,
-    /// повторный вызов переголосовывает. Пересчитывает агрегат и кладёт его в снапшот, чтобы
-    /// новое среднее подхватилось ближайшим publish-тиком (~5с), не дожидаясь base-sync (~5мин).
+    /// повторный вызов переголосовывает. После коммита агрегат пересчитывается в снапшоте, и
+    /// новое среднее подхватывается ближайшим publish-тиком (~5с), не дожидаясь base-sync (~5мин).
     @Transactional
     public void rate(Long serverId, Long profileId, int rating) {
         // Диапазон 1..5 валидируется на границе контроллера (@Min/@Max → 400 в ApiExceptionHandler).
@@ -140,7 +145,7 @@ public class MinecraftServerService {
             throw new NotFoundException("Server '%d' not found".formatted(serverId));
         }
         minecraftServerRepository.upsertRating(serverId, profileId, rating);
-        minecraftServerSnapshotStore.putRating(serverId, minecraftServerRepository.ratingAggregate(serverId));
+        eventPublisher.publishEvent(new MinecraftServerRatingChanged(serverId));
     }
 
     /// Агрегаты рейтинга по всем серверам (для base-sync листинга).
@@ -183,13 +188,7 @@ public class MinecraftServerService {
             Collection<MinecraftServerHostInfo> hosts
     ) {
         final var created = minecraftServerRepository.create(server, integrationStatus, hosts);
-        afterCommit(() -> minecraftServerSnapshotStore.putServer(MinecraftServerListing.of(
-                created,
-                minecraftServerRepository.findHosts(created.getId()),
-                integrationStatus,
-                null,
-                ServerRatingAggregate.EMPTY
-        )));
+        eventPublisher.publishEvent(new MinecraftServerCreated(created, integrationStatus));
         return created;
     }
 
@@ -206,13 +205,13 @@ public class MinecraftServerService {
         }
 
         minecraftServerRepository.upsertHosts(serverId, hosts);
-        afterCommit(() -> minecraftServerSnapshotStore.putHosts(serverId, minecraftServerRepository.findHosts(serverId)));
+        eventPublisher.publishEvent(new MinecraftServerHostsChanged(serverId));
     }
 
     /// Лицензию (online-mode) сообщает сам сервер; пишется только изменение, снапшот — после коммита.
     public void updateLicense(Long serverId, Boolean isLicense) {
         minecraftServerRepository.updateLicense(serverId, isLicense)
-                .ifPresent(updated -> afterCommit(() -> minecraftServerSnapshotStore.putBase(updated)));
+                .ifPresent(updated -> eventPublisher.publishEvent(new MinecraftServerChanged(updated)));
     }
 
     /// Пакетно привязывает операторов; владелец помечается is_owner.
@@ -220,14 +219,16 @@ public class MinecraftServerService {
         minecraftServerRepository.linkOperators(serverId, operatorUuids, ownerUuid);
     }
 
-    public boolean isBanned(Long serverId) {
-        return minecraftServerRepository.isBanned(serverId);
-    }
-
-    /// Бан; снапшот после коммита — листинг показывает BANNED сразу, не дожидаясь base-sync.
+    /// Перманентный бан сервера по его identity: отметка {@code banned_at}; в той же транзакции
+    /// слушатели {@link MinecraftServerBanned} отзывают его refresh-токены, так что дальнейшая
+    /// авторизация и ротация для этого id невозможны, с любого host/имени. Снапшот — после коммита:
+    /// листинг показывает BANNED сразу, не дожидаясь base-sync. Повторный бан — no-op.
+    @Transactional
     public void ban(Long serverId) {
-        minecraftServerRepository.ban(serverId)
-                .ifPresent(banned -> afterCommit(() -> minecraftServerSnapshotStore.putBase(banned)));
+        minecraftServerRepository.ban(serverId).ifPresent(banned -> {
+            eventPublisher.publishEvent(new MinecraftServerBanned(banned.getId()));
+            eventPublisher.publishEvent(new MinecraftServerChanged(banned));
+        });
     }
 
     public void linkOperator(UUID playerUuid, Long serverId) {
@@ -243,8 +244,18 @@ public class MinecraftServerService {
         minecraftServerRepository.addFavorite(serverId, profileId);
     }
 
+    /// Добавляет серверы в избранное профиля; уже добавленные пропускаются. Все или ничего:
+    /// неизвестный id → 404, и ни один сервер из запроса не добавляется. Проверка — до вставки,
+    /// а не по нарушению FK: оно логируется jOOQ как ERROR.
     public void addFavorite(List<Long> serverIds, Long profileId) {
-        minecraftServerRepository.addFavorite(serverIds, profileId);
+        if (serverIds.stream().anyMatch(Objects::isNull)) {
+            throw new BadRequestException("Server ids must not be empty!");
+        }
+        final var ids = Set.copyOf(serverIds);
+        if (minecraftServerRepository.countExisting(ids) != ids.size()) {
+            throw new NotFoundException("Some of servers %s not found".formatted(serverIds));
+        }
+        minecraftServerRepository.addFavorite(List.copyOf(ids), profileId);
     }
 
     public void removeFavorite(Long serverId, Long profileId) {
@@ -266,20 +277,6 @@ public class MinecraftServerService {
         } catch (IOException e) {
             return Optional.empty();
         }
-    }
-
-    private static void afterCommit(Runnable action) {
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            action.run();
-            return;
-        }
-
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                action.run();
-            }
-        });
     }
 
     /// Пинг с отказом: недоступный сервер → 503.

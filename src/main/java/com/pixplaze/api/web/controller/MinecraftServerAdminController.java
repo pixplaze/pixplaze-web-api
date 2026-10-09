@@ -1,13 +1,14 @@
 package com.pixplaze.api.web.controller;
 
-import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServer;
+import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
 import com.pixplaze.api.web.data.dto.MinecraftServerBidInfo;
 import com.pixplaze.api.web.data.server.MinecraftServerBidStatus;
 import com.pixplaze.api.web.exception.http.ConflictException;
 import com.pixplaze.api.web.exception.http.NotFoundException;
-import com.pixplaze.api.web.service.MinecraftServerAdminService;
+import com.pixplaze.api.web.mapper.MinecraftServerMapper;
 import com.pixplaze.api.web.service.MinecraftServerBidService;
 import com.pixplaze.api.web.service.MinecraftServerEnrollmentService;
+import com.pixplaze.api.web.service.MinecraftServerService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -25,13 +26,14 @@ import java.util.List;
 @RequestMapping("/admin/servers")
 @RequiredArgsConstructor
 public class MinecraftServerAdminController {
-    private final MinecraftServerAdminService minecraftServerAdminService;
+    private final MinecraftServerService minecraftServerService;
     private final MinecraftServerBidService minecraftServerBidService;
     private final MinecraftServerEnrollmentService minecraftServerEnrollmentService;
+    private final MinecraftServerMapper minecraftServerMapper;
 
     @PostMapping("/{id}/ban")
     public ResponseEntity<Void> ban(@PathVariable Long id) {
-        minecraftServerAdminService.ban(id);
+        minecraftServerService.ban(id);
         return ResponseEntity.noContent().build();
     }
 
@@ -43,10 +45,11 @@ public class MinecraftServerAdminController {
 
     /// Подтверждение заявки без плагина без проверки кода в MOTD — для известных владельцев.
     @PostMapping("/bids/{id}/approve")
-    public ResponseEntity<MinecraftServer> approveBid(@PathVariable Long id) {
+    public ResponseEntity<MinecraftServerInfo> approveBid(@PathVariable Long id) {
         final var bid = minecraftServerBidService.findById(id)
                 .orElseThrow(() -> new NotFoundException("Bid #%d not found!".formatted(id)));
-        return ResponseEntity.status(HttpStatus.CREATED).body(minecraftServerEnrollmentService.approveNative(bid));
+        final var server = minecraftServerEnrollmentService.enrollWithNativeIntegration(bid);
+        return ResponseEntity.status(HttpStatus.CREATED).body(minecraftServerMapper.toInfo(server));
     }
 
     /// Отклонение открытой заявки любого типа: адрес освобождается.

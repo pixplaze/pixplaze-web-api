@@ -2,12 +2,12 @@ package com.pixplaze.api.web.controller;
 
 import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerStateInfo;
-import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServer;
 import com.pixplaze.api.web.data.dto.MinecraftServerBidInfo;
 import com.pixplaze.api.web.data.dto.MinecraftServerBidRequest;
 import com.pixplaze.api.web.data.dto.MinecraftServerBidResponse;
 import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
 import com.pixplaze.api.web.data.user.MinecraftServerPrincipal;
+import com.pixplaze.api.web.mapper.MinecraftServerMapper;
 import com.pixplaze.api.web.service.MinecraftServerBidService;
 import com.pixplaze.api.web.service.MinecraftServerService;
 import jakarta.validation.Valid;
@@ -22,21 +22,23 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 @RestController
 @RequestMapping("/servers")
 public class MinecraftServerController {
     private final MinecraftServerService minecraftServerService;
     private final MinecraftServerBidService minecraftServerBidService;
+    private final MinecraftServerMapper minecraftServerMapper;
 
     @Autowired
     public MinecraftServerController(
             MinecraftServerService minecraftServerService,
-            MinecraftServerBidService minecraftServerBidService
+            MinecraftServerBidService minecraftServerBidService,
+            MinecraftServerMapper minecraftServerMapper
     ) {
         this.minecraftServerService = minecraftServerService;
         this.minecraftServerBidService = minecraftServerBidService;
+        this.minecraftServerMapper = minecraftServerMapper;
     }
 
     /// Публичный листинг серверов из материализованного снапшота (пагинация; тир зависит от online/plugin).
@@ -89,29 +91,13 @@ public class MinecraftServerController {
         minecraftServerService.rate(serverId, principal.getId(), rating);
     }
 
-    /// Заявка владельца на регистрацию сервера: возвращает код заявки и превью сервера. Без плагина
-    /// сервер обязан отвечать на пинг (код подтверждается через его MOTD); с плагином пинг нужен только
-    /// для иконки в превью, и недоступный сервер её просто не получит.
+    /// Заявка владельца на регистрацию сервера: код заявки и превью сервера (см. {@link MinecraftServerBidService#createBid}).
     @PostMapping("/bids")
     public ResponseEntity<MinecraftServerBidResponse> createBid(
             @AuthenticationPrincipal ApplicationClientPrincipal principal,
             @RequestBody @Valid MinecraftServerBidRequest request
     ) {
-        final var integration = Boolean.TRUE.equals(request.isIntegration())
-                ? MinecraftServerStateInfo.IntegrationStatus.PLUGIN
-                : MinecraftServerStateInfo.IntegrationStatus.NATIVE;
-
-        final var online = integration == MinecraftServerStateInfo.IntegrationStatus.NATIVE
-                ? Optional.of(minecraftServerService.requireOnline(request.host(), request.port()))
-                : minecraftServerService.pingServer(request.host(), request.port());
-
-        final var result = minecraftServerBidService.createBid(
-                request.name(), request.host(), request.port(), request.ownerUsername(), integration, principal.getId()
-        );
-        final var preview = MinecraftServerInfo.preview(
-                request.name(), request.host(), request.port(), online.map(MinecraftServerInfo::iconBase64).orElse(null)
-        );
-        return ResponseEntity.status(HttpStatus.CREATED).body(new MinecraftServerBidResponse(result.code(), preview));
+        return ResponseEntity.status(HttpStatus.CREATED).body(minecraftServerBidService.createBid(request, principal.getId()));
     }
 
     /// Заявки текущего пользователя, новые первыми: статус, код и срок открытых.
@@ -121,12 +107,17 @@ public class MinecraftServerController {
     }
 
     @PostMapping("/favorite")
-    public void addFavorite(@RequestParam List<Long> serverIds) {
-
+    public void addFavorite(
+            @AuthenticationPrincipal ApplicationClientPrincipal principal,
+            @RequestParam List<Long> serverIds
+    ) {
+        minecraftServerService.addFavorite(serverIds, principal.getId());
     }
 
     @GetMapping("/favorite")
-    public ResponseEntity<List<MinecraftServer>> getFavorite(@AuthenticationPrincipal ApplicationClientPrincipal applicationClientPrincipal) {
-        return ResponseEntity.ok(minecraftServerService.getFavorite(applicationClientPrincipal.getId()));
+    public List<MinecraftServerInfo> getFavorite(@AuthenticationPrincipal ApplicationClientPrincipal applicationClientPrincipal) {
+        return minecraftServerService.getFavorite(applicationClientPrincipal.getId()).stream()
+                .map(minecraftServerMapper::toInfo)
+                .toList();
     }
 }
