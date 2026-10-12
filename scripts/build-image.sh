@@ -8,6 +8,7 @@
 #   pixplaze-web-api-<version>.tar.gz   image archive for 'docker load'
 #   version.env                         PIXPLAZE_TAG=<version> for docker compose
 #   docker-compose.yml                  copy of the compose file
+#   restore-tables.sh                   restores selected tables from a pg_dump archive into a fresh database
 #
 # Environment:
 #   PLATFORM   target image platform (default: linux/amd64)
@@ -51,6 +52,7 @@ mkdir -p "$dist_dir"
 docker save "$image:$version" | gzip > "$dist_dir/$image-$version.tar.gz"
 echo "PIXPLAZE_TAG=$version" > "$dist_dir/version.env"
 cp docker-compose.yml "$dist_dir/"
+cp scripts/restore-tables.sh "$dist_dir/"
 
 echo
 echo "Done: $dist_dir"

@@ -30,7 +30,6 @@
 	<properties>
 		<java.version>17</java.version>
 		<flyway.version>12.1.0</flyway.version>
-		<spring-boot.version>4.0.3</spring-boot.version>
 		<jwt.version>0.12.6</jwt.version>
 		<mapstruct.version>1.6.3</mapstruct.version>
 		<gmavenplus.version>5.1.0</gmavenplus.version>
@@ -381,6 +380,22 @@
 					</annotationProcessorPaths>
 				</configuration>
 			</plugin>
+			<!-- Версия сборки для GET /info/version: git.properties (коммит, теги на HEAD).
+			     Версия плагина, цель и путь файла — из spring-boot-starter-parent. -->
+			<plugin>
+				<groupId>io.github.git-commit-id</groupId>
+				<artifactId>git-commit-id-maven-plugin</artifactId>
+				<configuration>
+					<verbose>false</verbose>
+					<failOnNoGitDirectory>false</failOnNoGitDirectory>
+					<!-- Только нужное: по умолчанию в файл попадают имена и почты авторов -->
+					<includeOnlyProperties>
+						<includeOnlyProperty>^git.commit.id(.abbrev)?$</includeOnlyProperty>
+						<includeOnlyProperty>^git.commit.time$</includeOnlyProperty>
+						<includeOnlyProperty>^git.tags$</includeOnlyProperty>
+					</includeOnlyProperties>
+				</configuration>
+			</plugin>
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
@@ -392,6 +407,14 @@
 						</exclude>
 					</excludes>
 				</configuration>
+				<executions>
+					<!-- META-INF/build-info.properties: версия из pom и время сборки -->
+					<execution>
+						<goals>
+							<goal>build-info</goal>
+						</goals>
+					</execution>
+				</executions>
 			</plugin>
 		</plugins>
 	</build>

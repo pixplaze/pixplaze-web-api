@@ -69,6 +69,7 @@ public class SecurityConfiguration {
         auth.requestMatchers("/auth/**").permitAll();
         auth.requestMatchers("/vouchers/invite/**").permitAll();
         auth.requestMatchers("/error/**").permitAll();
+        auth.requestMatchers(HttpMethod.GET, "/info/version").permitAll();
         auth.requestMatchers("/swagger-ui/**", "/swagger-resources/*", "/v3/api-docs/**").permitAll();
         auth.requestMatchers("/endpoint", "/admin/**").hasRole("ADMIN");
         // Публичный листинг серверов. Порядок важен: личное (избранное, свои заявки) защищаем ДО общего
