@@ -17,35 +17,36 @@ services:
       - "5432:5432"
     volumes:
       - pixplaze_db_data:/var/lib/postgresql/data
-  # Контейнер Redis
-  redis:
-    image: redis:8.10.1
-    container_name: pixplaze-redis
-    environment:
-      - REDIS_ARGS=--appendonly=yes --appendfsync=no
-    #      - REDIS_ARGS=--requirepass changemeinprod! --appendonly=yes
-    healthcheck:
-      test: ["CMD-SHELL", "redis-cli", "--raw", "incr", "ping"]
-      interval: 1s
-      timeout: 3s
-      retries: 5
-    ports:
-      - '6379:6379'
-    volumes:
-      - redis-data:/data
-    restart: unless-stopped
+  # Контейнер Redis — пока не используется приложением (сторы in-memory)
+  # redis:
+  #   image: redis:8.10.1
+  #   container_name: pixplaze-redis
+  #   environment:
+  #     - REDIS_ARGS=--appendonly=yes --appendfsync=no
+  #   #      - REDIS_ARGS=--requirepass changemeinprod! --appendonly=yes
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "redis-cli", "--raw", "incr", "ping"]
+  #     interval: 1s
+  #     timeout: 3s
+  #     retries: 5
+  #   ports:
+  #     - '6379:6379'
+  #   volumes:
+  #     - redis-data:/data
+  #   restart: unless-stopped
   # Контейнер API
   api:
     # Образ собирается отдельно (docker build) и переносится готовым (docker save/load) — см. README.
     # Здесь только запуск: ни локальная, ни удалённая машина не собирают образ из исходников.
+    # Тег — из version.env, который пишет scripts/build-image.sh (docker compose --env-file .env --env-file version.env).
     image: pixplaze-web-api:${PIXPLAZE_TAG:-latest}
     container_name: pixplaze-web-api
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
-      redis:
-        condition: service_healthy
+      # redis:
+      #   condition: service_healthy
     ports:
       - "8080:8080"
     environment:
@@ -62,5 +63,5 @@ services:
 
 volumes:
   pixplaze_db_data:
-  redis-data:
-    driver: local
+  # redis-data:
+  #   driver: local

@@ -183,6 +183,8 @@
 		</dependency>
 	</dependencies>
 	<build>
+		<!-- Имя jar без версии: Dockerfile и скрипты не зависят от <version>, единственный источник версии — pom -->
+		<finalName>${project.artifactId}</finalName>
 		<plugins>
 			<!-- generate-sources, порядок важен: контейнер (gmavenplus) → миграции (Flyway) → генерация (jOOQ).
 			     Контейнер останавливает Testcontainers (Ryuk) при выходе из Maven. -->

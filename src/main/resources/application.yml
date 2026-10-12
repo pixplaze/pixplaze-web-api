@@ -18,6 +18,8 @@ spring:
     show-sql: true
   application:
     name: "pixplaze-web-api"
+    # Подставляется из <version> в pom при сборке (фильтрация ресурсов spring-boot-starter-parent)
+    version: "@project.version@"
 app:
   url.api.gateway: ${PIXPLAZE_WEB_API_URL}
   url.app.gateway: ${PIXPLAZE_WEB_APP_URL}
