@@ -33,6 +33,7 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.*;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -260,6 +261,14 @@ public class MinecraftServerService {
 
     public void removeFavorite(Long serverId, Long profileId) {
         minecraftServerRepository.removeFavorite(serverId, profileId);
+    }
+
+    /// Убирает серверы из избранного профиля; отсутствующие в избранном пропускаются.
+    public void removeFavorite(List<Long> serverIds, Long profileId) {
+        if (serverIds.stream().anyMatch(Objects::isNull)) {
+            throw new BadRequestException("Server ids must not be empty!");
+        }
+        minecraftServerRepository.removeFavorite(Set.copyOf(serverIds), profileId);
     }
 
     public List<MinecraftServer> getFavorite(Long profileId) {

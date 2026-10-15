@@ -6,7 +6,6 @@ import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
 import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServer;
 import com.pixplaze.api.web.util.AddressUtils;
 import com.pixplaze.api.web.util.NullUtils;
-import org.jspecify.annotations.Nullable;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 import org.mapstruct.NullValuePropertyMappingStrategy;
@@ -21,6 +20,7 @@ public interface MinecraftServerMapper {
     @Mapping(target = "bannedAt", ignore = true)
     @Mapping(target = "ownerProfileId", ignore = true)
     MinecraftServer toEntity(MinecraftServerInfo minecraftServerInfo);
+    @Mapping(source = "icon", target = "iconBase64")
     MinecraftServerInfo toInfo(MinecraftServer minecraftServer);
 
     default Map<String, Object> toAuthorizationDetails(MinecraftServerAuthorizationDetails authorizationDetails) {

@@ -2,9 +2,12 @@ package com.pixplaze.api.web.controller;
 
 import com.pixplaze.api.ext.data.auth.Authority;
 import com.pixplaze.api.web.data.dto.ProfileInfo;
+import com.pixplaze.api.web.data.dto.ProfileUpdateRequest;
 import com.pixplaze.api.web.data.dto.UserInfo;
 import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
+import com.pixplaze.api.web.exception.http.ForbiddenException;
 import com.pixplaze.api.web.service.ProfileService;
+import jakarta.validation.Valid;
 import lombok.AllArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -36,6 +39,23 @@ public class ProfileController {
             throw new IllegalArgumentException("Profile id must be specified!");
         }
 
+        return profileService.getUserInfo(profileId);
+    }
+
+    /// Изменение своего профиля. Имя и email попадают в access-токен, поэтому клиент после ответа
+    /// делает refresh: профильный refresh перечитывает профиль из БД.
+    @PreAuthorize("isAuthenticated()")
+    @PatchMapping("/{profileId}")
+    public UserInfo updateProfile(
+            @PathVariable Long profileId,
+            @RequestBody @Valid ProfileUpdateRequest request,
+            @AuthenticationPrincipal ApplicationClientPrincipal clientPrincipal
+    ) {
+        if (!clientPrincipal.getId().equals(profileId)) {
+            throw new ForbiddenException("Only own profile can be updated");
+        }
+
+        profileService.update(profileId, request);
         return profileService.getUserInfo(profileId);
     }
 

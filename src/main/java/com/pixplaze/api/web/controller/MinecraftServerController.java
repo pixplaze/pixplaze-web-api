@@ -114,6 +114,14 @@ public class MinecraftServerController {
         minecraftServerService.addFavorite(serverIds, principal.getId());
     }
 
+    @DeleteMapping("/favorite")
+    public void removeFavorite(
+            @AuthenticationPrincipal ApplicationClientPrincipal principal,
+            @RequestParam List<Long> serverIds
+    ) {
+        minecraftServerService.removeFavorite(serverIds, principal.getId());
+    }
+
     @GetMapping("/favorite")
     public List<MinecraftServerInfo> getFavorite(@AuthenticationPrincipal ApplicationClientPrincipal applicationClientPrincipal) {
         return minecraftServerService.getFavorite(applicationClientPrincipal.getId()).stream()

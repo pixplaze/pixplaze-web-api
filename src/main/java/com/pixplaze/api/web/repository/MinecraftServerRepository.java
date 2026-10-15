@@ -317,17 +317,10 @@ public class MinecraftServerRepository {
             return;
         }
 
-        var query = dslContext.deleteFrom(MINECRAFT_SERVER_FAVORITE)
-                .where(MINECRAFT_SERVER_FAVORITE.MINECRAFT_SERVER_ID.eq(NullUtils.nullOf(Long.class)))
-                .and(MINECRAFT_SERVER_FAVORITE.PROFILE_ID.eq(profileId));
-
-        var batch = dslContext.batch(query);
-
-        for (var serverId : serverIds) {
-            batch.bind(serverId, profileId);
-        }
-
-        batch.execute();
+        dslContext.deleteFrom(MINECRAFT_SERVER_FAVORITE)
+                .where(MINECRAFT_SERVER_FAVORITE.MINECRAFT_SERVER_ID.in(serverIds))
+                .and(MINECRAFT_SERVER_FAVORITE.PROFILE_ID.eq(profileId))
+                .execute();
     }
 
     public List<MinecraftServer> getFavorite(Long profileId) {
