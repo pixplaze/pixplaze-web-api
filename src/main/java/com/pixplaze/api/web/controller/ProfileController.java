@@ -1,9 +1,13 @@
 package com.pixplaze.api.web.controller;
 
 import com.pixplaze.api.ext.data.auth.Authority;
+import com.pixplaze.api.web.data.db.tables.pojos.Profile;
+import com.pixplaze.api.web.data.db.tables.pojos.ProfileFriend;
 import com.pixplaze.api.web.data.dto.ProfileInfo;
 import com.pixplaze.api.web.data.dto.UserInfo;
 import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
+import com.pixplaze.api.web.exception.http.BadRequestException;
+import com.pixplaze.api.web.service.ProfileFriendService;
 import com.pixplaze.api.web.service.ProfileService;
 import lombok.AllArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
@@ -20,6 +24,7 @@ import java.util.List;
 public class ProfileController {
 
     private final ProfileService profileService;
+    private final ProfileFriendService profileFriendService;
 
     @PreAuthorize("isAuthenticated()")
     @GetMapping("/{profileId}")
@@ -48,4 +53,88 @@ public class ProfileController {
         return profileService.getProfiles(limit, offset);
     }
 
+    @PreAuthorize("isAuthenticated()")
+    @GetMapping("/{profileId}/friends")
+    public List<Profile> getFriendsProfiles(
+        @PathVariable Long profileId,
+        @AuthenticationPrincipal ApplicationClientPrincipal clientPrincipal
+    ) {
+        if (profileId == null) {
+            throw new IllegalArgumentException("Profile id must be specified!");
+        }
+
+        if (!canView(clientPrincipal, profileId)) {
+            throw new AccessDeniedException("Profile isn't accessible!");
+        }
+
+        return profileFriendService.findFriendsProfiles(profileId);
+    }
+
+    @PreAuthorize("isAuthenticated()")
+    @GetMapping("/{profileId}/friends/requests/incoming")
+    public List<ProfileFriend> getFriendsProfilesRequestsIncoming(
+        @PathVariable Long profileId,
+        @AuthenticationPrincipal ApplicationClientPrincipal clientPrincipal
+    ) {
+        if (profileId == null) {
+            throw new IllegalArgumentException("Profile id must be specified!");
+        }
+
+        if (!canView(clientPrincipal, profileId)) {
+            throw new AccessDeniedException("Profile isn't accessible!");
+        }
+
+        return profileFriendService.findFriendsProfilesRequestsIncoming(profileId);
+    }
+
+    @PreAuthorize("isAuthenticated()")
+    @GetMapping("/{profileId}/friends/requests/outgoing")
+    public List<ProfileFriend> getFriendsProfilesRequestsOutgoing(
+        @PathVariable Long profileId,
+        @AuthenticationPrincipal ApplicationClientPrincipal clientPrincipal
+    ) {
+        if (profileId == null) {
+            throw new IllegalArgumentException("Profile id must be specified!");
+        }
+
+        if (!canView(clientPrincipal, profileId)) {
+            throw new AccessDeniedException("Profile isn't accessible!");
+        }
+
+        return profileFriendService.findFriendsProfilesRequestsOutgoing(profileId);
+    }
+
+    @PreAuthorize("isAuthenticated()")
+    @PutMapping("/me/friends/{friendId}")
+    public ProfileFriend addFriend(
+        @PathVariable Long friendId,
+        @AuthenticationPrincipal ApplicationClientPrincipal clientPrincipal
+    ) {
+        if (friendId == null) {
+            throw new IllegalArgumentException("Profile id must be specified!");
+        }
+
+        if (clientPrincipal.getId().equals(friendId)) {
+            throw new BadRequestException("Profile cannot be a friend of itself!");
+        }
+
+        return profileFriendService.add(clientPrincipal.getId(), friendId);
+    }
+
+    @DeleteMapping("/me/friends/{friendId}")
+    public void removeFriend(
+        @PathVariable Long friendId,
+        @AuthenticationPrincipal ApplicationClientPrincipal clientPrincipal
+    ) {
+        if (friendId == null) {
+            throw new IllegalArgumentException("Profile id must be specified!");
+        }
+
+        profileFriendService.remove(clientPrincipal.getId(), friendId);
+    }
+
+    private static boolean canView(ApplicationClientPrincipal clientPrincipal, Long profileId) {
+        return clientPrincipal.getAuthority().is(Authority.Role.ADMIN) ||
+            clientPrincipal.getId().equals(profileId);
+    }
 }

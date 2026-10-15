@@ -1,0 +1,1 @@
+CREATE INDEX profile_friend_reverse_idx ON profile_friend (friend_profile_id, profile_id);
