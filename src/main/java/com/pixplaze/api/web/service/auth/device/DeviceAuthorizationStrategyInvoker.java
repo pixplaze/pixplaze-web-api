@@ -51,6 +51,11 @@ public class DeviceAuthorizationStrategyInvoker {
         return build(state.request(), state.details(), state.status(), null);
     }
 
+    /** Вызов по сохранённому запросу в момент одобрения: одобряющий — текущий пользователь. */
+    public StrategyCall<?> forApproval(DeviceAuthorizationState state, ApplicationClientPrincipal approver) {
+        return build(state.request(), state.details(), state.status(), approver);
+    }
+
     /**
      * Вызов для выдачи токенов, с загруженным одобряющим. Принципал грузится по сохранённому
      * id профиля, поэтому права читаются свежими на момент выдачи.
@@ -59,11 +64,11 @@ public class DeviceAuthorizationStrategyInvoker {
         final var decision = state.decision();
 
         if (decision == null) {
-            throw new DeviceAuthorizationException(OAuthError.EXPIRED_TOKEN);
+            throw new DeviceAuthorizationException(OAuthError.EXPIRED_TOKEN, "grant without a decision");
         }
 
         if (decision.status() != DeviceAuthorizationStatus.APPROVED) {
-            throw new DeviceAuthorizationException(OAuthError.INVALID_GRANT);
+            throw new DeviceAuthorizationException(OAuthError.INVALID_GRANT, "grant of a request that is not approved: " + decision.status());
         }
 
         return build(state.request(), state.details(), state.status(), loadApprover(decision));
@@ -82,10 +87,10 @@ public class DeviceAuthorizationStrategyInvoker {
             parsedDetails = strategy.parse(request.clientId(), authority, details);
         } catch (JacksonException | IllegalArgumentException e) {
             // Детали присылает недоверенное устройство: нет, не JSON или не та форма — invalid_request.
-            throw new DeviceAuthorizationException(OAuthError.INVALID_REQUEST, e);
+            throw new DeviceAuthorizationException(OAuthError.INVALID_REQUEST, "authorization_details are not valid JSON of the expected shape", e);
         }
 
-        return new StrategyCall<>(strategy, new DeviceAuthorizationContext<>(authority, parsedDetails, status, approver));
+        return new StrategyCall<>(strategy, new DeviceAuthorizationContext<>(authority, parsedDetails, status, approver, request.requesterIp()));
     }
 
     private ApplicationClientPrincipal loadApprover(ApproverDecision decision) {
@@ -107,6 +112,10 @@ public class DeviceAuthorizationStrategyInvoker {
 
         public void validate() {
             strategy.validate(context);
+        }
+
+        public void checkApproval() {
+            strategy.checkApproval(context);
         }
 
         public AuthorizationToken authorize() {

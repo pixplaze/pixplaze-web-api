@@ -1,6 +1,5 @@
 package com.pixplaze.api.web.service.auth;
 
-import com.pixplaze.api.ext.data.auth.Authority;
 import com.pixplaze.api.web.data.auth.RefreshTokenSubjectType;
 import com.pixplaze.api.web.data.db.tables.pojos.RefreshToken;
 import com.pixplaze.api.web.data.user.ClientPrincipal;
@@ -20,17 +19,16 @@ import org.springframework.transaction.annotation.Transactional;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.OffsetDateTime;
-import java.util.Arrays;
 import java.util.Base64;
-import java.util.List;
-import java.util.stream.Collectors;
 
 import static com.pixplaze.api.web.util.CryptoUtils.hash;
 
 /**
  * Opaque refresh-токены: клиенту отдаётся случайная строка, в БД хранится только
- * её SHA-256 хэш и контекст для перевыпуска access-токена. Такой токен отзываемый
- * (в отличие от JWT) и не покидает доверенную зону — проверяется только здесь.
+ * её SHA-256 хэш, тип субъекта и owner-ссылки. Роли, источник и аудиторию токен не хранит:
+ * при обновлении они заново выводятся из БД по {@code subject_type}, поэтому снятые права
+ * не переживают ротацию. Такой токен отзываемый (в отличие от JWT) и не покидает доверенную
+ * зону — проверяется только здесь.
  *
  * <p>При обновлении выполняется ротация: старый токен отзывается и связывается с
  * новым ({@code replaced_by}); повторное предъявление уже отозванного токена
@@ -59,7 +57,7 @@ public class RefreshTokenService {
     }
 
     /**
-     * Выпускает opaque refresh-токен, сохраняет его хэш и контекст, возвращает сырой токен.
+     * Выпускает opaque refresh-токен, сохраняет его хэш и субъекта, возвращает сырой токен.
      * Тип субъекта и owner-ссылка выводятся из типа принципала.
      */
     public String issue(ClientPrincipal principal) {
@@ -72,12 +70,8 @@ public class RefreshTokenService {
     public String issue(ClientPrincipal principal, Duration ttl) {
         final var effectiveTtl = ttl != null ? ttl : expirationTerm;
         final var rawToken = generateRawToken();
-        final var authority = principal.getAuthority();
         final var refreshToken = new RefreshToken()
                 .setTokenHash(hash(rawToken))
-                .setAuthSource(authority.source().code())
-                .setAuthRoles(encodeRoles(authority.roles()))
-                .setAuthTargets(encodeTargets(authority.targets()))
                 .setExpiresAt(OffsetDateTime.now().plus(effectiveTtl));
 
         applySubject(refreshToken, principal);
@@ -87,7 +81,8 @@ public class RefreshTokenService {
         return rawToken;
     }
 
-    /// Проставляет subject_type и соответствующую owner-ссылку по типу принципала.
+    /// Проставляет subject_type и owner-ссылки по типу принципала. У игрока, кроме uuid и профиля,
+    /// запоминается сервер, через который он вошёл: из него refresh выводит роли и аудиторию.
     private void applySubject(RefreshToken token, ClientPrincipal clientPrincipal) {
         if (clientPrincipal instanceof ApplicationClientPrincipal profilePrincipal) {
             token.setSubjectType(RefreshTokenSubjectType.PROFILE)
@@ -96,11 +91,9 @@ public class RefreshTokenService {
             token.setSubjectType(RefreshTokenSubjectType.MINECRAFT_SERVER)
                     .setMinecraftServerId(minecraftServerPrincipal.getMinecraftServerId());
         } else if (clientPrincipal instanceof MinecraftPlayerPrincipal minecraftPlayerPrincipal) {
-            final var type = clientPrincipal.getAuthority().is(Authority.Role.MINECRAFT_OPERATOR)
-                    ? RefreshTokenSubjectType.MINECRAFT_OPERATOR
-                    : RefreshTokenSubjectType.MINECRAFT_PLAYER;
-            token.setSubjectType(type)
+            token.setSubjectType(RefreshTokenSubjectType.MINECRAFT_PLAYER)
                     .setMinecraftPlayerUuid(minecraftPlayerPrincipal.getUuid())
+                    .setMinecraftServerId(minecraftPlayerPrincipal.getMinecraftServerId())
                     .setProfileId(minecraftPlayerPrincipal.getProfileId());
         } else {
             throw new IllegalArgumentException("Unsupported principal type: " + clientPrincipal.getClass());
@@ -110,7 +103,7 @@ public class RefreshTokenService {
     /**
      * Проверяет refresh-токен и ротирует его: отзывает текущий, выпускает новый.
      *
-     * @return контекст для перевыпуска access-токена и новый сырой refresh-токен
+     * @return субъект для перевыпуска access-токена и новый сырой refresh-токен
      * @throws InvalidRefreshTokenException если токен неизвестен, истёк или уже отозван (reuse)
      */
     @Transactional
@@ -126,7 +119,7 @@ public class RefreshTokenService {
         if (current.getExpiresAt().isBefore(OffsetDateTime.now())) {
             throw new InvalidRefreshTokenException("expired");
         }
-        // Серверный токен забаненного сервера не обновляем и гасим всю его цепочку.
+        // Токены забаненного сервера (его собственные и его игроков) не обновляем и гасим все.
         final var serverId = current.getMinecraftServerId();
         if (serverId != null && minecraftServerRepository.isBanned(serverId)) {
             refreshTokenRepository.revokeAllForServer(serverId);
@@ -140,9 +133,6 @@ public class RefreshTokenService {
                 .setProfileId(current.getProfileId())
                 .setMinecraftServerId(current.getMinecraftServerId())
                 .setMinecraftPlayerUuid(current.getMinecraftPlayerUuid())
-                .setAuthSource(current.getAuthSource())
-                .setAuthRoles(current.getAuthRoles())
-                .setAuthTargets(current.getAuthTargets())
                 .setExpiresAt(OffsetDateTime.now().plus(expirationTerm));
         final var next = refreshTokenRepository.create(refreshToken);
 
@@ -153,9 +143,6 @@ public class RefreshTokenService {
                 current.getProfileId(),
                 current.getMinecraftServerId(),
                 current.getMinecraftPlayerUuid(),
-                Authority.Source.of(current.getAuthSource()),
-                decodeRoles(current.getAuthRoles()),
-                decodeTargets(current.getAuthTargets()),
                 newRawToken
         );
     }
@@ -165,36 +152,8 @@ public class RefreshTokenService {
         switch (token.getSubjectType()) {
             case PROFILE -> refreshTokenRepository.revokeAllForProfile(token.getProfileId());
             case MINECRAFT_SERVER -> refreshTokenRepository.revokeAllForServer(token.getMinecraftServerId());
-            case MINECRAFT_PLAYER, MINECRAFT_OPERATOR -> refreshTokenRepository.revokeAllForPlayer(token.getMinecraftPlayerUuid());
+            case MINECRAFT_PLAYER -> refreshTokenRepository.revokeAllForPlayer(token.getMinecraftPlayerUuid());
         }
-    }
-
-    /// Кодирование набора ролей для хранения в одной колонке auth_role (CSV коротких кодов).
-    /// Фаза 3 заменит на отдельную колонку auth_roles.
-    private static String encodeRoles(List<Authority.Role> roles) {
-        return roles.stream().map(Authority.Role::code).collect(Collectors.joining(","));
-    }
-
-    private static List<Authority.Role> decodeRoles(String encoded) {
-        return Arrays.stream(encoded.split(","))
-                .filter(code -> !code.isBlank())
-                .map(Authority.Role::of)
-                .toList();
-    }
-
-    /// Кодирование/декодирование targets (≡ aud) в одну колонку auth_targets (CSV хостов/зон).
-    /// Хосты не содержат запятых, поэтому CSV безопасен.
-    private static String encodeTargets(List<String> targets) {
-        return String.join(",", targets);
-    }
-
-    private static List<String> decodeTargets(String encoded) {
-        if (encoded == null || encoded.isBlank()) {
-            return List.of();
-        }
-        return Arrays.stream(encoded.split(","))
-                .filter(target -> !target.isBlank())
-                .toList();
     }
 
     public void revoke(String rawToken) {
@@ -223,15 +182,12 @@ public class RefreshTokenService {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
-    /** Контекст, восстанавливаемый из refresh-токена для перевыпуска access-токена. */
+    /** Субъект refresh-токена: по нему права для нового access-токена выводятся из БД. */
     public record RotationResult(
             RefreshTokenSubjectType subjectType,
             Long profileId,
             Long minecraftServerId,
             java.util.UUID playerUuid,
-            Authority.Source source,
-            List<Authority.Role> roles,
-            List<String> targets,
             String refreshToken
     ) {}
 }

@@ -41,6 +41,7 @@ public class ProfileRepository {
                 .set(PROFILE.NAME, profile.getName())
                 .set(PROFILE.EMAIL, profile.getEmail())
                 .set(PROFILE.PASSWORD, profile.getPassword())
+                .set(PROFILE.IS_ONLINE_HIDDEN, profile.getIsOnlineHidden())
                 .where(PROFILE.ID.eq(profile.getId()))
                 .returning(PROFILE)
                 .fetchOneInto(Profile.class);

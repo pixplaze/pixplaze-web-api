@@ -26,6 +26,8 @@ public interface MinecraftPlayerMapper {
         NullUtils.ifPresentConsume(authorizationDetails.minecraftServerId(), v -> details.put("minecraftServerId", v));
         NullUtils.ifPresentConsume(authorizationDetails.uuid(), v -> details.put("uuid", v));
         NullUtils.ifPresentConsume(authorizationDetails.username(), v -> details.put("username", v));
+        // IP, с которого игрок зашёл на сервер: подтверждающий сверяет его со своим
+        NullUtils.ifPresentConsume(authorizationDetails.ipAddress(), v -> details.put("ipAddress", v));
         NullUtils.ifPresentConsume(authorizationDetails.isOperator(), v -> details.put("isOperator", v));
         NullUtils.ifPresentConsume(authorizationDetails.skinHeadBase64(), v -> details.put("skinHeadBase64", v));
         return details;

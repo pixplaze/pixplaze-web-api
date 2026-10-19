@@ -1,124 +1,115 @@
 package com.pixplaze.api.web.repository;
 
-import com.pixplaze.api.ext.data.server.MinecraftServerStateInfo;
-import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServerBid;
-import com.pixplaze.api.web.data.dto.MinecraftServerBidInfo;
-import com.pixplaze.api.web.data.server.MinecraftServerBidStatus;
-import com.pixplaze.api.web.util.AddressUtils;
+import com.pixplaze.api.ext.data.server.MinecraftServerHostInfo;
+import com.pixplaze.api.web.data.server.MinecraftServerRegistrationStatus;
+import com.pixplaze.api.web.data.server.ServerBid;
 import lombok.RequiredArgsConstructor;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 
+import static com.pixplaze.api.web.data.db.Tables.MINECRAFT_SERVER;
 import static com.pixplaze.api.web.data.db.Tables.MINECRAFT_SERVER_BID;
+import static com.pixplaze.api.web.data.db.Tables.MINECRAFT_SERVER_HOST;
 import static com.pixplaze.api.web.data.db.Tables.PROFILE;
 import static com.pixplaze.api.web.data.db.Tables.VOUCHER_CODE;
 
+/// Коды регистрации серверов ({@code minecraft_server_bid}: сервер → ваучер) и чтение заявок — серверов с их кодом.
 @Repository
 @RequiredArgsConstructor
 public class MinecraftServerBidRepository {
     private final DSLContext dslContext;
 
-    public MinecraftServerBid create(MinecraftServerBid bid) {
-        return Objects.requireNonNull(
-                dslContext.insertInto(MINECRAFT_SERVER_BID)
-                        .set(MINECRAFT_SERVER_BID.NAME, bid.getName())
-                        .set(MINECRAFT_SERVER_BID.HOST, AddressUtils.normalizeHost(bid.getHost()))
-                        .set(MINECRAFT_SERVER_BID.PORT, bid.getPort())
-                        .set(MINECRAFT_SERVER_BID.OWNER_USERNAME, bid.getOwnerUsername())
-                        .set(MINECRAFT_SERVER_BID.INTEGRATION, bid.getIntegration())
-                        .set(MINECRAFT_SERVER_BID.VOUCHER_CODE_ID, bid.getVoucherCodeId())
-                        .set(MINECRAFT_SERVER_BID.PROFILE_ID, bid.getProfileId())
-                        .returning()
-                        .fetchOneInto(MinecraftServerBid.class),
-                "Inserted minecraft_server_bid row must be returned!"
-        );
-    }
-
-    /// Открытая заявка на игровой адрес; уникальный индекс гарантирует не больше одной.
-    public Optional<MinecraftServerBid> findPendingByAddress(String host, Integer port) {
-        return dslContext.select()
-                .from(MINECRAFT_SERVER_BID)
-                .where(MINECRAFT_SERVER_BID.HOST.eq(AddressUtils.normalizeHost(host)))
-                .and(MINECRAFT_SERVER_BID.PORT.eq(port))
-                .and(MINECRAFT_SERVER_BID.STATUS.eq(MinecraftServerBidStatus.PENDING))
-                .fetchOptionalInto(MinecraftServerBid.class);
-    }
-
-    public Optional<MinecraftServerBid> findById(Long id) {
-        return dslContext.selectFrom(MINECRAFT_SERVER_BID)
-                .where(MINECRAFT_SERVER_BID.ID.eq(id))
-                .fetchOptionalInto(MinecraftServerBid.class);
-    }
-
-    /// Открытые заявки (опционально — только с указанной интеграцией), старые первыми.
-    public List<MinecraftServerBid> findPending(MinecraftServerStateInfo.IntegrationStatus integration) {
-        var condition = MINECRAFT_SERVER_BID.STATUS.eq(MinecraftServerBidStatus.PENDING);
-        if (integration != null) {
-            condition = condition.and(MINECRAFT_SERVER_BID.INTEGRATION.eq(integration));
-        }
-
-        return dslContext.selectFrom(MINECRAFT_SERVER_BID)
-                .where(condition)
-                .orderBy(MINECRAFT_SERVER_BID.CREATED_AT)
-                .fetchInto(MinecraftServerBid.class);
-    }
-
-    /// Заявки для страницы заявок с кодом и именем подавшего, новые первыми. {@code null} в фильтре —
-    /// без ограничения: {@code profileId} — заявки профиля, {@code status} — заявки в этом статусе.
-    /// Срок жизни ({@code expiresAt}) знает сервис, здесь он не заполняется.
-    public List<MinecraftServerBidInfo> findInfos(Long profileId, MinecraftServerBidStatus status) {
-        var condition = DSL.noCondition();
-        if (profileId != null) {
-            condition = condition.and(MINECRAFT_SERVER_BID.PROFILE_ID.eq(profileId));
-        }
-        if (status != null) {
-            condition = condition.and(MINECRAFT_SERVER_BID.STATUS.eq(status));
-        }
-
-        return dslContext.select(
-                        MINECRAFT_SERVER_BID.ID,
-                        MINECRAFT_SERVER_BID.NAME,
-                        MINECRAFT_SERVER_BID.HOST,
-                        MINECRAFT_SERVER_BID.PORT,
-                        MINECRAFT_SERVER_BID.INTEGRATION,
-                        MINECRAFT_SERVER_BID.STATUS,
-                        VOUCHER_CODE.CODE,
-                        MINECRAFT_SERVER_BID.OWNER_USERNAME,
-                        PROFILE.NAME,
-                        MINECRAFT_SERVER_BID.CREATED_AT)
-                .from(MINECRAFT_SERVER_BID)
-                .join(VOUCHER_CODE).on(VOUCHER_CODE.ID.eq(MINECRAFT_SERVER_BID.VOUCHER_CODE_ID))
-                .leftJoin(PROFILE).on(PROFILE.ID.eq(MINECRAFT_SERVER_BID.PROFILE_ID))
-                .where(condition)
-                .orderBy(MINECRAFT_SERVER_BID.CREATED_AT.desc())
-                .fetch(record -> new MinecraftServerBidInfo(
-                        record.value1(), record.value2(), record.value3(), record.value4(), record.value5(),
-                        record.value6(), record.value7(), record.value8(), record.value9(), record.value10(),
-                        null));
-    }
-
-    /// Переводит открытые заявки, созданные раньше {@code createdBefore}, в EXPIRED; возвращает их число.
-    public int expirePendingCreatedBefore(OffsetDateTime createdBefore) {
-        return dslContext.update(MINECRAFT_SERVER_BID)
-                .set(MINECRAFT_SERVER_BID.STATUS, MinecraftServerBidStatus.EXPIRED)
-                .where(MINECRAFT_SERVER_BID.STATUS.eq(MinecraftServerBidStatus.PENDING))
-                .and(MINECRAFT_SERVER_BID.CREATED_AT.lt(createdBefore))
+    /// Выдаёт серверу код регистрации.
+    public void create(Long serverId, Long voucherCodeId) {
+        dslContext.insertInto(MINECRAFT_SERVER_BID)
+                .set(MINECRAFT_SERVER_BID.MINECRAFT_SERVER_ID, serverId)
+                .set(MINECRAFT_SERVER_BID.VOUCHER_CODE_ID, voucherCodeId)
                 .execute();
     }
 
-    /// Закрывает заявку (APPROVED/REJECTED): запись остаётся для истории, адрес освобождается.
-    /// Закрывает только открытую заявку; {@code false} — заявка уже закрыта (гонка проверки MOTD и админа).
-    public boolean setStatus(Long id, MinecraftServerBidStatus status) {
-        return dslContext.update(MINECRAFT_SERVER_BID)
-                .set(MINECRAFT_SERVER_BID.STATUS, status)
-                .where(MINECRAFT_SERVER_BID.ID.eq(id))
-                .and(MINECRAFT_SERVER_BID.STATUS.eq(MinecraftServerBidStatus.PENDING))
-                .execute() > 0;
+    /// Заявка по выданному коду (любого статуса: регистрация решает, что с ним делать).
+    public Optional<ServerBid> findByVoucherCodeId(Long voucherCodeId) {
+        return select(MINECRAFT_SERVER_BID.VOUCHER_CODE_ID.eq(voucherCodeId)).stream().findFirst();
+    }
+
+    /// Заявка сервера с последним выданным кодом.
+    public Optional<ServerBid> findLatest(Long serverId) {
+        return select(MINECRAFT_SERVER_BID.MINECRAFT_SERVER_ID.eq(serverId).and(isLatest())).stream().findFirst();
+    }
+
+    /// Открытые заявки с последним кодом, старые первыми.
+    public List<ServerBid> findPending() {
+        return select(MINECRAFT_SERVER.STATUS.eq(MinecraftServerRegistrationStatus.PENDING).and(isLatest()));
+    }
+
+    /// Заявки с последним кодом, новые первыми; {@code null} в фильтре — без ограничения.
+    public List<ServerBid> findLatest(Long ownerProfileId, MinecraftServerRegistrationStatus status) {
+        var condition = isLatest();
+        if (ownerProfileId != null) {
+            condition = condition.and(MINECRAFT_SERVER.OWNER_PROFILE_ID.eq(ownerProfileId));
+        }
+        if (status != null) {
+            condition = condition.and(MINECRAFT_SERVER.STATUS.eq(status));
+        }
+        final var bids = new ArrayList<>(select(condition));
+        Collections.reverse(bids);
+        return bids;
+    }
+
+    /// Закрывает как EXPIRED открытые заявки, чей последний код выдан раньше {@code issuedBefore}; возвращает
+    /// их id — адреса им освобождает вызывающий.
+    public List<Long> expirePendingIssuedBefore(OffsetDateTime issuedBefore) {
+        return dslContext.update(MINECRAFT_SERVER)
+                .set(MINECRAFT_SERVER.STATUS, MinecraftServerRegistrationStatus.EXPIRED)
+                .set(MINECRAFT_SERVER.UPDATED_AT, DSL.currentOffsetDateTime())
+                .where(MINECRAFT_SERVER.STATUS.eq(MinecraftServerRegistrationStatus.PENDING))
+                .andNotExists(DSL.selectOne()
+                        .from(MINECRAFT_SERVER_BID)
+                        .where(MINECRAFT_SERVER_BID.MINECRAFT_SERVER_ID.eq(MINECRAFT_SERVER.ID))
+                        .and(MINECRAFT_SERVER_BID.CREATED_AT.ge(issuedBefore)))
+                .returning(MINECRAFT_SERVER.ID)
+                .fetch(MINECRAFT_SERVER.ID);
+    }
+
+    /// Строка связи — последний код своего сервера.
+    private static Condition isLatest() {
+        final var other = MINECRAFT_SERVER_BID.as("other_bid");
+        return DSL.notExists(DSL.selectOne()
+                .from(other)
+                .where(other.MINECRAFT_SERVER_ID.eq(MINECRAFT_SERVER_BID.MINECRAFT_SERVER_ID))
+                .and(other.CREATED_AT.gt(MINECRAFT_SERVER_BID.CREATED_AT)));
+    }
+
+    private List<ServerBid> select(Condition condition) {
+        return dslContext.select(
+                        MINECRAFT_SERVER.ID,
+                        MINECRAFT_SERVER.NAME,
+                        MINECRAFT_SERVER.STATUS,
+                        MINECRAFT_SERVER.OWNER_PROFILE_ID,
+                        PROFILE.NAME,
+                        MINECRAFT_SERVER_HOST.ADDRESS,
+                        MINECRAFT_SERVER_HOST.PORT,
+                        VOUCHER_CODE.ID,
+                        VOUCHER_CODE.CODE,
+                        MINECRAFT_SERVER_BID.CREATED_AT)
+                .from(MINECRAFT_SERVER_BID)
+                .join(MINECRAFT_SERVER).on(MINECRAFT_SERVER.ID.eq(MINECRAFT_SERVER_BID.MINECRAFT_SERVER_ID))
+                .join(VOUCHER_CODE).on(VOUCHER_CODE.ID.eq(MINECRAFT_SERVER_BID.VOUCHER_CODE_ID))
+                .leftJoin(PROFILE).on(PROFILE.ID.eq(MINECRAFT_SERVER.OWNER_PROFILE_ID))
+                .leftJoin(MINECRAFT_SERVER_HOST).on(MINECRAFT_SERVER_HOST.MINECRAFT_SERVER_ID.eq(MINECRAFT_SERVER.ID)
+                        .and(MINECRAFT_SERVER_HOST.TYPE.eq(MinecraftServerHostInfo.Type.HOST)))
+                .where(condition)
+                .orderBy(MINECRAFT_SERVER_BID.CREATED_AT, MINECRAFT_SERVER.ID)
+                .fetch(record -> new ServerBid(
+                        record.value1(), record.value2(), record.value3(), record.value4(), record.value5(),
+                        record.value6(), record.value7(), record.value8(), record.value9(), record.value10()));
     }
 }

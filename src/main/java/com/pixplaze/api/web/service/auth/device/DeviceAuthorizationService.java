@@ -7,7 +7,7 @@ import com.pixplaze.api.web.data.dto.DeviceAuthorizationInfo;
 import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
 
 public interface DeviceAuthorizationService {
-    DeviceAuthorizationResponse authorize(String clientId, String scope, String authorizationDetails);
+    DeviceAuthorizationResponse authorize(String clientId, String scope, String authorizationDetails, String requesterIp);
 
     AuthorizationToken poll(String clientId, String deviceCode);
 

@@ -68,6 +68,16 @@ public class MinecraftPlayerService {
         return minecraftPlayerRepository.isProfileLinked(uuid);
     }
 
+    /// Есть ли у профиля хотя бы один привязанный игрок.
+    public boolean hasLinkedPlayer(Long profileId) {
+        return minecraftPlayerRepository.hasLinkedPlayer(profileId);
+    }
+
+    /// Привязан ли игрок именно к этому профилю.
+    public boolean isProfileOwnsPlayer(Long profileId, UUID uuid) {
+        return minecraftPlayerRepository.isProfileOwnsPlayer(profileId, uuid);
+    }
+
     public Optional<UUID> findUuidByProfileId(Long profileId) {
         return minecraftPlayerRepository.findUuidByProfileId(profileId);
     }

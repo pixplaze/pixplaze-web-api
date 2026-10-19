@@ -17,17 +17,20 @@ import com.pixplaze.api.web.data.auth.Scopes;
  * @param userCode       короткий код, который человек вводит на странице подтверждения
  * @param deviceCodeHash хэш device-кода — ключ хранения; сырой код не хранится нигде
  * @param scope          запрошенная привилегия строкой, см. {@link Scopes}
+ * @param requesterIp    IP, с которого устройство запросило авторизацию, — показывается подтверждающему,
+ *                       чтобы чужой запрос было видно; {@code null} — неизвестен
  */
 public record DeviceAuthorizationRequest(
         String clientId,
         String userCode,
         String deviceCodeHash,
-        String scope
+        String scope,
+        String requesterIp
 ) {
 
     /** Тот же запрос под другим user-кодом — на случай коллизии кодов при создании. */
     public DeviceAuthorizationRequest withUserCode(String userCode) {
-        return new DeviceAuthorizationRequest(clientId, userCode, deviceCodeHash, scope);
+        return new DeviceAuthorizationRequest(clientId, userCode, deviceCodeHash, scope, requesterIp);
     }
 
     /** Запрошенная привилегия, восстановленная из {@link #scope}. */

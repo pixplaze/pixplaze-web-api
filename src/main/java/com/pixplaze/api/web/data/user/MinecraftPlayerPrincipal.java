@@ -10,8 +10,9 @@ import java.util.UUID;
 /**
  * Принципал Minecraft-игрока. Identity — {@code playerUuid}. {@code profileId} заполняется,
  * когда игрок связан с профилем приложения (src=MAD); для «чистого» игрока — {@code null}.
- * Роль оператора выражается ролью {@code MINECRAFT_OPERATOR} в {@link com.pixplaze.api.ext.data.auth.Authority}.
- * Токен игрока адресован серверу, против которого он авторизован ({@code serverId} из {@link MinecraftClientPrincipal}).
+ * Роль всегда {@code MINECRAFT_PLAYER}: операторские права живут в игре и в токене доступа к плагину.
+ * Токен игрока адресован шлюзу (плагин ходит с ним в web-api от имени игрока); сервер, через который
+ * игрок вошёл, — {@code serverId} из {@link MinecraftClientPrincipal}.
  */
 @Getter
 @Setter

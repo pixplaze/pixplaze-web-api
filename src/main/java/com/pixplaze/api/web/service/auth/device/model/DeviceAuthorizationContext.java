@@ -30,10 +30,12 @@ import org.jspecify.annotations.Nullable;
  * @param status    стадия флоу: {@code PENDING}, пока решения подтверждающего нет
  * @param approver  одобривший профиль. Заполнен **только** на этапе {@code authorize}; в
  *                  {@code describe} и {@code validate} решения ещё нет и одобряющего не существует.
+ * @param requesterIp IP, с которого устройство запросило авторизацию (для экрана подтверждения)
  */
 public record DeviceAuthorizationContext<A extends AuthorizationDetails>(
         Authority authority,
         A details,
         DeviceAuthorizationStatus status,
-        @Nullable ApplicationClientPrincipal approver
+        @Nullable ApplicationClientPrincipal approver,
+        @Nullable String requesterIp
 ) {}

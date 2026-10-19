@@ -39,7 +39,7 @@ public class DeviceAuthorizationStrategyFactory {
                 return (DeviceAuthorizationStrategy<A, AuthorizationToken>) strategies.get(MinecraftServerAuthorizationStrategy.class);
             }
 
-            if (authority.is(Authority.Role.MINECRAFT_PLAYER) || authority.is(Authority.Role.MINECRAFT_OPERATOR)) {
+            if (authority.is(Authority.Role.MINECRAFT_PLAYER)) {
                 return (DeviceAuthorizationStrategy<A, AuthorizationToken>) strategies.get(MinecraftPlayerAuthorizationStrategy.class);
             }
         }
@@ -50,6 +50,7 @@ public class DeviceAuthorizationStrategyFactory {
         }
 
         // Scopes отсекает неподдерживаемые сочетания раньше; здесь — страховка.
-        throw new DeviceAuthorizationException(OAuthError.INVALID_SCOPE);
+        throw new DeviceAuthorizationException(OAuthError.INVALID_SCOPE,
+                "no strategy for roles %s from %s".formatted(authority.roles(), authority.source()));
     }
 }

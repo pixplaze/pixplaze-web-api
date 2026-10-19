@@ -11,6 +11,11 @@ CREATE TABLE minecraft_server (
     icon TEXT,
     -- профиль, подавший заявку на сервер; удаление профиля оставляет сервер в листинге без владельца
     owner_profile_id BIGINT REFERENCES profile(id) ON DELETE SET NULL,
+    -- стадия регистрации: PENDING — заявка подана, код ещё не подтверждён; ACTIVE — зарегистрирован;
+    -- REJECTED — отклонён администратором; EXPIRED — код не подтвердили за срок жизни заявки.
+    -- В листинге и прочих чтениях только ACTIVE. Коды регистрации — в minecraft_server_bid
+    status VARCHAR(16) NOT NULL DEFAULT 'ACTIVE'
+        CHECK (status IN ('PENDING', 'ACTIVE', 'REJECTED', 'EXPIRED')),
     -- бан — решение модерации; хранится отдельно от живого статуса (ONLINE/OFFLINE выводится из пинга)
     banned_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,

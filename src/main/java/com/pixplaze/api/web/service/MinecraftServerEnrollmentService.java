@@ -1,36 +1,32 @@
 package com.pixplaze.api.web.service;
 
 import com.pixplaze.api.ext.data.player.MinecraftPlayerInfo;
-import com.pixplaze.api.ext.data.server.MinecraftServerHostInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerStateInfo;
 import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServer;
-import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServerBid;
-import com.pixplaze.api.web.data.db.tables.pojos.VoucherCode;
-import com.pixplaze.api.web.data.voucher.VoucherCodeType;
-import com.pixplaze.api.web.exception.MinecraftPlayerAlreadyOwnedException;
+import com.pixplaze.api.web.data.server.MinecraftServerRegistrationStatus;
+import com.pixplaze.api.web.data.server.ServerBid;
 import com.pixplaze.api.web.exception.MinecraftServerAddressTakenException;
 import com.pixplaze.api.web.exception.http.ConflictException;
 import com.pixplaze.api.web.exception.http.ForbiddenException;
+import com.pixplaze.api.web.exception.http.NotFoundException;
 import com.pixplaze.api.web.mapper.MinecraftPlayerMapper;
-import com.pixplaze.api.web.mapper.MinecraftServerMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Stream;
 
 /**
- * Создание сервера по заявке — единственное место регистрации. Заявку без плагина подтверждает код
- * в MOTD ({@link com.pixplaze.api.web.service.server.MinecraftServerBidVerifier}) или админ без кода
- * ({@link #enrollWithNativeIntegration}); заявку с плагином — сам плагин через device-flow
- * ({@link com.pixplaze.api.web.service.auth.device.MinecraftServerAuthorizationStrategy} → {@link #enrollWithPluginIntegration}).
- * Общие шаги в одном порядке: закрыть заявку, создать сервер, погасить её код. Бросает только доменные
- * исключения; перевод в OAuth-ошибки — забота стратегии.
+ * Регистрация заявки (PENDING → ACTIVE) — единственное место регистрации. Код из MOTD подтверждает пинг
+ * ({@link com.pixplaze.api.web.service.server.MinecraftServerBidVerifier}) или админ без кода
+ * ({@link #enrollWithNativeIntegration}); плагин — через device-flow с одобрением владельца
+ * ({@link com.pixplaze.api.web.service.auth.device.MinecraftServerAuthorizationStrategy} → {@link #connectPlugin}).
+ * Бросает только доменные исключения; перевод в OAuth-ошибки — забота стратегии.
  */
 @Service
 @RequiredArgsConstructor
@@ -39,109 +35,83 @@ public class MinecraftServerEnrollmentService {
     private final MinecraftServerService minecraftServerService;
     private final MinecraftPlayerService minecraftPlayerService;
     private final VoucherCodeService voucherCodeService;
-    private final MinecraftServerMapper minecraftServerMapper;
     private final MinecraftPlayerMapper minecraftPlayerMapper;
 
-    /// Подтверждает открытую NATIVE-заявку: сервер с игровым адресом из заявки, владелец — профиль
-    /// заявки. Конфликт — заявка с плагином, уже закрыта (гонка проверки MOTD и админа) или её адрес
-    /// успел занять другой сервер.
+    /// Регистрирует заявку без плагина: код подтверждён пингом или админ одобрил вручную.
+    ///
+    /// @throws NotFoundException у сервера нет заявки
+    /// @throws ConflictException сервер уже не заявка
     @Transactional
-    public MinecraftServer enrollWithNativeIntegration(MinecraftServerBid enrollmentBid) {
-        if (enrollmentBid.getIntegration() != MinecraftServerStateInfo.IntegrationStatus.NATIVE) {
-            throw new ConflictException("Bid #%d is confirmed by the plugin, not approved manually!".formatted(enrollmentBid.getId()));
-        }
-
-        final var enrollmentVoucherCode = voucherCodeService.findById(enrollmentBid.getVoucherCodeId())
-                .orElseThrow(() -> new IllegalStateException("Bid #%d has no voucher code!".formatted(enrollmentBid.getId())));
-        final var minecraftServer = new MinecraftServer()
-                .setName(enrollmentBid.getName())
-                .setOwnerProfileId(enrollmentBid.getProfileId());
-
-        return enroll(
-                enrollmentBid,
-                enrollmentVoucherCode,
-                minecraftServer,
-                MinecraftServerStateInfo.IntegrationStatus.NATIVE,
-                List.of(MinecraftServerHostInfo.server(enrollmentBid.getHost(), enrollmentBid.getPort()))
-        );
+    public MinecraftServer enrollWithNativeIntegration(Long serverId) {
+        final var bid = minecraftServerBidService.findLatest(serverId)
+                .orElseThrow(() -> new NotFoundException("Bid #%d not found!".formatted(serverId)));
+        return activate(bid, MinecraftServerStateInfo.IntegrationStatus.NATIVE);
     }
 
     /**
-     * Регистрирует сервер по PLUGIN-заявке, когда владелец одобрил device-авторизацию плагина. Код из
-     * конфига плагина должен быть кодом заявки, одобрять — её владелец, а среди операторов сервера
-     * должен быть игрок с ником из заявки. Кроме общих шагов создаёт игроков, привязывает операторов
-     * (владельца — с is_owner) и связывает игрока-владельца с профилем, чтобы тот сразу мог делать
-     * re-auth как оператор.
+     * Подключает плагин по коду заявки, когда владелец одобрил device-авторизацию. Открытая заявка
+     * регистрируется; уже зарегистрированный сервер (код успел подтвердить пинг) просто получает плагин.
+     * Адреса и online-mode — присланные, игроки и операторы — из списка плагина, если он есть.
      *
-     * @throws ForbiddenException                    код не тот или недействителен, одобряет не владелец, владельца нет среди операторов
-     * @throws MinecraftServerAddressTakenException  игровой адрес уже занят другим сервером
-     * @throws ConflictException                     заявка уже закрыта (отклонена или истекла)
-     * @throws MinecraftPlayerAlreadyOwnedException  игрок-владелец привязан к другому профилю
+     * @throws ForbiddenException                   одобряет не владелец или сервер забанен
+     * @throws ConflictException                    заявка закрыта (отклонена или истекла)
+     * @throws MinecraftServerAddressTakenException адрес занят другим сервером
      */
     @Transactional
-    public MinecraftServer enrollWithPluginIntegration(
-            MinecraftServerBid enrollmentBid,
-            MinecraftServerInfo serverInfo,
-            String inviteCode,
-            Long approverProfileId
-    ) {
-        final var voucher = voucherCodeService.load(inviteCode, VoucherCodeType.INVITE_MINECRAFT_SERVER);
-        // Код выдаётся владельцу заявки и привязывается только к нему, поэтому сверки владельца достаточно.
-        if (!voucher.getId().equals(enrollmentBid.getVoucherCodeId()) || !enrollmentBid.getProfileId().equals(approverProfileId)) {
-            throw new ForbiddenException("Bid #%d is not confirmed by its owner's code!".formatted(enrollmentBid.getId()));
+    public MinecraftServer connectPlugin(ServerBid bid, MinecraftServerInfo serverInfo, Long approverProfileId) {
+        if (!Objects.equals(bid.ownerProfileId(), approverProfileId)) {
+            throw new ForbiddenException("Bid #%d is not approved by its owner!".formatted(bid.serverId()));
         }
 
-        final var playerList = serverInfo.state().players();
-        final var operators = playerList.operators();
-        // Ники Minecraft уникальны без учёта регистра.
-        final var owner = operators.stream()
-                .filter(operator -> enrollmentBid.getOwnerUsername().equalsIgnoreCase(operator.username()))
-                .findFirst()
-                .orElseThrow(() -> new ForbiddenException("Owner '%s' of bid #%d is not a server operator!".formatted(enrollmentBid.getOwnerUsername(), enrollmentBid.getId())));
-        final var minecraftServer = minecraftServerMapper.toEntity(serverInfo)
-                .setName(enrollmentBid.getName())
-                .setOwnerProfileId(enrollmentBid.getProfileId());
+        final var server = switch (bid.status()) {
+            case PENDING -> activate(bid, MinecraftServerStateInfo.IntegrationStatus.PLUGIN);
+            case ACTIVE -> minecraftServerService.findById(bid.serverId())
+                    .filter(found -> found.getBannedAt() == null)
+                    .orElseThrow(() -> new ForbiddenException("Server #%d is banned!".formatted(bid.serverId())));
+            case REJECTED, EXPIRED -> throw new ConflictException("Bid #%d is %s!".formatted(bid.serverId(), bid.status()));
+        };
 
-        final var server = enroll(
-                enrollmentBid,
-                voucher,
-                minecraftServer,
-                MinecraftServerStateInfo.IntegrationStatus.PLUGIN,
-                serverInfo.hosts()
-        );
+        try {
+            minecraftServerService.upsertHosts(server.getId(), serverInfo.hosts());
+        } catch (DuplicateKeyException e) {
+            throw new MinecraftServerAddressTakenException(bid.host(), bid.port());
+        }
+        minecraftServerService.updateLicense(server.getId(), serverInfo.isLicense());
 
-        minecraftPlayerService.createAll(Stream.concat(operators.stream(), playerList.list().stream())
-                .filter(Objects::nonNull)
+        // Оператор из ops.json, ни разу не заходивший на сервер, приходит без ника: такого игрока не завести
+        final var players = Optional.ofNullable(serverInfo.state()).map(MinecraftServerStateInfo::players);
+        final var operators = known(players.map(list -> list.operators()).orElse(List.of()));
+        final var online = known(players.map(list -> list.list()).orElse(List.of()));
+        minecraftPlayerService.createAll(Stream.concat(operators.stream(), online.stream())
                 .distinct()
                 .map(minecraftPlayerMapper::toEntity)
                 .toList());
-        minecraftServerService.linkOperators(server.getId(), operators.stream().map(MinecraftPlayerInfo::uuid).toList(), owner.uuid());
-        minecraftPlayerService.linkProfile(owner.uuid(), approverProfileId);
+        minecraftServerService.linkOperators(server.getId(), operators.stream().map(MinecraftPlayerInfo::uuid).toList());
 
         return server;
     }
 
-    /// Общие шаги регистрации. Заявка закрывается первой: гонка с отклонением или истечением отсекается
-    /// до создания записей, а при любой ошибке дальше транзакция откатит и её.
-    private MinecraftServer enroll(
-            MinecraftServerBid bid,
-            VoucherCode voucher,
-            MinecraftServer server,
-            MinecraftServerStateInfo.IntegrationStatus integration,
-            Collection<MinecraftServerHostInfo> hosts
-    ) {
-        if (!minecraftServerBidService.approve(bid.getId())) {
-            throw new ConflictException("Bid #%d is not pending!".formatted(bid.getId()));
-        }
+    private static List<MinecraftPlayerInfo> known(List<MinecraftPlayerInfo> players) {
+        return players == null ? List.of() : players.stream()
+                .filter(player -> player != null && player.uuid() != null
+                        && player.username() != null && !player.username().isBlank())
+                .toList();
+    }
 
-        final MinecraftServer created;
-        try {
-            created = minecraftServerService.create(server, integration, hosts);
-        } catch (DuplicateKeyException e) {
-            throw new MinecraftServerAddressTakenException(bid.getHost(), bid.getPort());
+    /// PENDING → ACTIVE и погашение кода владельцем. Статус меняется первым: гонка с отклонением,
+    /// истечением или второй регистрацией отсекается до остальных записей.
+    private MinecraftServer activate(ServerBid bid, MinecraftServerStateInfo.IntegrationStatus integration) {
+        if (bid.status() != MinecraftServerRegistrationStatus.PENDING) {
+            throw new ConflictException("Bid #%d is not pending!".formatted(bid.serverId()));
         }
+        final var server = minecraftServerService.activate(bid.serverId(), integration)
+                .orElseThrow(() -> new ConflictException("Bid #%d is not pending!".formatted(bid.serverId())));
 
-        voucherCodeService.activate(voucher, bid.getProfileId());
-        return created;
+        // Владелец мог удалить профиль: сервер всё равно регистрируется, код больше не нужен — статус не PENDING
+        if (bid.ownerProfileId() != null) {
+            voucherCodeService.findById(bid.voucherCodeId())
+                    .ifPresent(voucher -> voucherCodeService.activate(voucher, bid.ownerProfileId()));
+        }
+        return server;
     }
 }

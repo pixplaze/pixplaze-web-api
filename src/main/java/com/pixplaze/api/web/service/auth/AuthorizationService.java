@@ -21,12 +21,14 @@ import com.pixplaze.api.web.service.MinecraftServerService;
 import com.pixplaze.api.web.service.ProfileService;
 import com.pixplaze.api.web.service.VoucherCodeService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
 
 @Service
 @RequiredArgsConstructor
@@ -41,6 +43,9 @@ public class AuthorizationService {
     private final VoucherCodeService voucherCodeService;
     private final MinecraftServerService minecraftServerService;
     private final MinecraftPlayerService minecraftPlayerService;
+
+    @Value("${app.url.api.gateway}")
+    private String apiGateway;
 
     /**
      * Регистрация пользователя
@@ -94,24 +99,19 @@ public class AuthorizationService {
         return new AuthorizationTokenInfo(accessToken, refreshToken);
     }
 
-    /// Ротация refresh-токена и перевыпуск access. Серверу вместе с парой снова отдаётся публичный ключ
-    /// подписи ({@link VerifiableAuthorizationTokenInfo}) — так до плагина доходит и новый ключ после ротации.
+    /// Ротация refresh-токена и перевыпуск access. Права всех субъектов заново выводятся из БД по
+    /// {@code subject_type}, ничего не копируется из старого токена: снятые роли, отвязка игрока и бан
+    /// сервера срабатывают на ближайшем refresh. Тип субъекта — ещё и верхняя граница scope: токен
+    /// игрока всегда {@code MINECRAFT_PLAYER}, операторские права живут в игре и в токене доступа к плагину.
+    ///
+    /// Серверу вместе с парой снова отдаётся публичный ключ подписи ({@link VerifiableAuthorizationTokenInfo}) —
+    /// так до плагина доходит и новый ключ после ротации.
     public AuthorizationToken refresh(String token) {
         final var rotation = refreshTokenService.rotate(token);
-        // Для НЕ-профильных субъектов (player/server) authority восстанавливаем из refresh-токена:
-        // aud ≡ targets переживает ротацию (сервер игрока не хранится в refresh-токене — иначе терялся бы),
-        // роли/источник — оттуда же, identity — из БД. Профиль ре-деривируется из БД (см. case PROFILE).
-        final var authorityBuilder = Authority.as(rotation.roles().toArray(new Authority.Role[0]))
-                .from(rotation.source());
-        final var authority = rotation.targets().isEmpty()
-                ? authorityBuilder.unauthorized()
-                : authorityBuilder.to(rotation.targets()).grant();
 
         final var accessToken = switch (rotation.subjectType()) {
             case PROFILE -> {
-                // Ре-деривация из БД (toApplicationClientPrincipal → applyAuthority): новые/снятые связи
-                // игрок↔сервер отражаются на ближайшем refresh (роль MINECRAFT_PLAYER + хосты в aud),
-                // без полного релогина. НЕ перезатираем authority значением из refresh-токена.
+                // toApplicationClientPrincipal → applyAuthority: системные роли профиля, aud — шлюз.
                 final var profile = profileService.toApplicationClientPrincipal(profileService.getById(rotation.profileId()));
                 yield profileAccessTokenService.issue(profile);
             }
@@ -121,19 +121,38 @@ public class AuthorizationService {
                 final var serverPrincipal = new MinecraftServerPrincipal();
                 serverPrincipal.setMinecraftServerId(server.getId());
                 serverPrincipal.setName(server.getName());
-                serverPrincipal.setAuthority(authority);
+                serverPrincipal.setAuthority(Authority.as(Authority.Role.MINECRAFT_SERVER)
+                        .from(Authority.Source.MINECRAFT_AUTHORIZED_DEVICE)
+                        .to(apiGateway, MinecraftServerTargets.of(server.getId()))
+                        .grant());
                 yield minecraftServerAccessTokenService.issue(serverPrincipal);
             }
-            case MINECRAFT_PLAYER, MINECRAFT_OPERATOR -> {
-                final var player = minecraftPlayerService.findByUuid(rotation.playerUuid())
+            case MINECRAFT_PLAYER -> {
+                final var serverId = rotation.minecraftServerId();
+                final var playerUuid = rotation.playerUuid();
+                final var player = minecraftPlayerService.findByUuid(playerUuid)
                         .orElseThrow(() -> new InvalidRefreshTokenException("player_not_found"));
+                // Игрок отвязан от профиля или ушёл с сервера — токен больше не выдаётся.
+                if (serverId == null) {
+                    throw new InvalidRefreshTokenException("player_without_server");
+                }
+                if (!minecraftPlayerService.isProfileOwnsPlayer(rotation.profileId(), playerUuid)) {
+                    throw new InvalidRefreshTokenException("player_unlinked");
+                }
+                if (!minecraftServerService.isPlayerServerMember(playerUuid, serverId)) {
+                    throw new InvalidRefreshTokenException("player_not_on_server");
+                }
+
                 final var playerPrincipal = new MinecraftPlayerPrincipal();
                 playerPrincipal.setUuid(player.getUuid());
                 playerPrincipal.setUsername(player.getUsername());
                 playerPrincipal.setProfileId(rotation.profileId());
-                // Сервер игрока восстанавливаем из его зоны в targets, чтобы он попал и в mc.sid claim.
-                playerPrincipal.setMinecraftServerId(MinecraftServerTargets.minecraftServerIdOf(rotation.targets()).orElse(null));
-                playerPrincipal.setAuthority(authority);
+                playerPrincipal.setMinecraftServerId(serverId);
+                // aud — шлюз: токен игрока нужен плагину для запросов в web-api от имени игрока.
+                playerPrincipal.setAuthority(Authority.as(Authority.Role.MINECRAFT_PLAYER)
+                        .from(Authority.Source.MINECRAFT_AUTHORIZED_DEVICE)
+                        .to(apiGateway)
+                        .grant());
                 yield minecraftPlayerAccessTokenService.issue(playerPrincipal);
             }
         };

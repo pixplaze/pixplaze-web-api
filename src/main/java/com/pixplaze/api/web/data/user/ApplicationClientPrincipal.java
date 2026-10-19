@@ -15,10 +15,9 @@ import java.util.List;
  * {@code id}; единственный субъект, который ещё и {@link UserDetails} (парольный DAO-путь). Имя
  * субъекта ({@link #getName()}) — {@code name}; через Lombok он же {@code getUsername()}.
  *
- * <p>Роли ⊆ {@code {USER, MINECRAFT_PLAYER, MINECRAFT_OPERATOR}}: пока профиль ни с кем не связан —
- * только {@code USER}; после привязки игрока(ов) добавляются {@code MINECRAFT_PLAYER} и, если есть
- * оператор, {@code MINECRAFT_OPERATOR}, а сами игроки попадают в {@link #players}. Это даёт
- * профилю возможность действовать против Minecraft-сервера из веб-приложения.
+ * <p>Роли только системные: {@code USER} плюс выданные вручную ({@code profile_role}). Игровые роли
+ * в токен профиля не попадают — права на сервере едут в токене доступа к плагину. Связанные игроки
+ * лежат в {@link #players} как данные для веб-приложения.
  */
 @Getter
 @Setter
@@ -29,8 +28,7 @@ public class ApplicationClientPrincipal extends ClientPrincipal implements UserD
     private String email;
     private String password;
 
-    /// Связанные MC-игроки профиля — источник ролей MINECRAFT_PLAYER/MINECRAFT_OPERATOR.
-    /// Заполняется при сборке принципала (логин/чтение токена); пусто ⇒ только USER.
+    /// Связанные MC-игроки профиля. Заполняется при сборке принципала из БД (логин, refresh).
     private List<MinecraftPlayerInfo> players = new ArrayList<>();
 
     @Override

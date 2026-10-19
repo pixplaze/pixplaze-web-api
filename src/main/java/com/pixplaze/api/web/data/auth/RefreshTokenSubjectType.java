@@ -7,6 +7,5 @@ package com.pixplaze.api.web.data.auth;
 public enum RefreshTokenSubjectType {
     PROFILE,
     MINECRAFT_PLAYER,
-    MINECRAFT_OPERATOR,
     MINECRAFT_SERVER
 }

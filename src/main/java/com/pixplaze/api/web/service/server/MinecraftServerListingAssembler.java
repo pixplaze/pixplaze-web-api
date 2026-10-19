@@ -17,8 +17,9 @@ import java.time.Instant;
 @Component
 public class MinecraftServerListingAssembler {
 
-    /// Плагин молчит дольше этого — его часть состояния считаем протухшей.
-    private static final Duration PLUGIN_TTL = Duration.ofMinutes(2);
+    /// Плагин молчит дольше этого — его часть состояния считаем протухшей. Тот же срок у снимка
+    /// игроков в {@code MinecraftPresenceStore}: обе части приходят с одним heartbeat.
+    public static final Duration PLUGIN_TTL = Duration.ofMinutes(2);
 
     public MinecraftServerInfo toServerInfo(MinecraftServerListing listing) {
         final var base = listing.base();

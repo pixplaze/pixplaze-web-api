@@ -32,6 +32,11 @@ public interface DeviceAuthorizationStrategy<A extends AuthorizationDetails, T e
     /// Предварительная проверка до публикации сессии. Одобряющего на этом этапе ещё нет.
     default void validate(DeviceAuthorizationContext<A> context) throws DeviceAuthorizationException {}
 
+    /// Проверка одобрения в момент, когда подтверждающий нажал «разрешить», — до записи решения.
+    /// Здесь отказ видит сам подтверждающий (понятным сообщением), а не только устройство при выдаче
+    /// токенов. {@code context.approver()} заполнен. Выдача ({@link #authorize}) проверяет всё заново.
+    default void checkApproval(DeviceAuthorizationContext<A> context) {}
+
     /// Выдача токенов. Вызывается только после одобрения, поэтому {@code context.approver()}
     /// здесь гарантированно заполнен.
     T authorize(DeviceAuthorizationContext<A> context);

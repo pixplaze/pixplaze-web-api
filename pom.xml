@@ -10,7 +10,7 @@
 	</parent>
 	<groupId>com.pixplaze.api</groupId>
 	<artifactId>pixplaze-web-api</artifactId>
-	<version>1.0.1</version>
+	<version>1.0.3</version>
 	<packaging>jar</packaging>
 	<name>pixplaze-web-api</name>
 	<description>Pixplaze web API</description>
@@ -42,7 +42,7 @@
 		<dependency>
 			<groupId>com.pixplaze.api</groupId>
 			<artifactId>pixplaze-ext-api</artifactId>
-			<version>1.0.1</version>
+			<version>1.0.3</version>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -295,7 +295,7 @@
 										<forcedType>
 											<userType>com.pixplaze.api.ext.data.server.MinecraftServerStateInfo.IntegrationStatus</userType>
 											<converter>new org.jooq.impl.EnumConverter(java.lang.String.class, com.pixplaze.api.ext.data.server.MinecraftServerStateInfo.IntegrationStatus.class)</converter>
-											<includeExpression>minecraft_server_state(_history)?\.integration_status|minecraft_server_bid\.integration</includeExpression>
+											<includeExpression>minecraft_server_state(_history)?\.integration_status</includeExpression>
 										</forcedType>
 										<forcedType>
 											<userType>com.pixplaze.api.ext.data.server.MinecraftServerHostInfo.Type</userType>
@@ -303,9 +303,9 @@
 											<includeExpression>minecraft_server_host\.type</includeExpression>
 										</forcedType>
 										<forcedType>
-											<userType>com.pixplaze.api.web.data.server.MinecraftServerBidStatus</userType>
-											<converter>new org.jooq.impl.EnumConverter(java.lang.String.class, com.pixplaze.api.web.data.server.MinecraftServerBidStatus.class)</converter>
-											<includeExpression>minecraft_server_bid\.status</includeExpression>
+											<userType>com.pixplaze.api.web.data.server.MinecraftServerRegistrationStatus</userType>
+											<converter>new org.jooq.impl.EnumConverter(java.lang.String.class, com.pixplaze.api.web.data.server.MinecraftServerRegistrationStatus.class)</converter>
+											<includeExpression>minecraft_server\.status</includeExpression>
 										</forcedType>
 										<forcedType>
 											<userType>com.pixplaze.api.web.data.auth.RefreshTokenSubjectType</userType>

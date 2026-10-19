@@ -1,8 +1,9 @@
 package com.pixplaze.api.web.controller;
 
-import com.pixplaze.api.ext.data.auth.AuthorizationTokenInfo;
 import com.pixplaze.api.web.data.dto.DeviceAuthorizationDecisionRequest;
 import com.pixplaze.api.web.data.dto.DeviceAuthorizationInfo;
+import com.pixplaze.api.web.data.dto.PermissionsHint;
+import com.pixplaze.api.web.data.dto.ProfileTokenResponse;
 import com.pixplaze.api.web.data.dto.SignInRequest;
 import com.pixplaze.api.web.data.dto.SignUpRequest;
 import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
@@ -12,19 +13,27 @@ import com.pixplaze.api.web.exception.auth.DeviceAuthorizationException;
 import com.pixplaze.api.web.exception.auth.InvalidRefreshTokenException;
 import com.pixplaze.api.web.mapper.DeviceResponseMapper;
 import com.pixplaze.api.web.service.auth.MinecraftServerAccessTokenService;
+import com.pixplaze.api.web.service.ServerAccessService;
 import com.pixplaze.api.web.service.auth.AuthorizationService;
+import com.pixplaze.api.web.service.auth.ClientPrincipalReader;
+import com.pixplaze.api.web.service.auth.PermissionCatalog;
 import com.pixplaze.api.web.service.auth.device.DeviceAuthorizationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import com.pixplaze.api.web.util.AddressUtils;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.context.request.WebRequest;
 
 import java.util.Map;
 
@@ -39,25 +48,28 @@ public class AuthorizationController {
     private final DeviceResponseMapper deviceResponseMapper;
     private final MinecraftServerAccessTokenService minecraftServerAccessTokenService;
     private final RefreshTokenCookies refreshTokenCookies;
+    private final PermissionCatalog permissionCatalog;
+    private final ClientPrincipalReader clientPrincipalReader;
+    private final ServerAccessService serverAccessService;
 
     @Operation(summary = "Регистрация пользователя")
     @PostMapping("/sign-up")
-    public ResponseEntity<AuthorizationTokenInfo> signUp(@RequestBody @Valid SignUpRequest requestInfo) {
+    public ResponseEntity<ProfileTokenResponse> signUp(@RequestBody @Valid SignUpRequest requestInfo) {
         final var responseInfo = authorizationService.signUp(requestInfo);
         final var responseCookie = refreshTokenCookies.issue(responseInfo.refreshToken());
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, responseCookie.toString())
-                .body(responseInfo.safe());
+                .body(profileTokenResponse(responseInfo.accessToken()));
     }
 
     @Operation(summary = "Авторизация пользователя")
     @PostMapping("/sign-in")
-    public ResponseEntity<AuthorizationTokenInfo> signIn(@RequestBody @Valid SignInRequest requestInfo) {
+    public ResponseEntity<ProfileTokenResponse> signIn(@RequestBody @Valid SignInRequest requestInfo) {
         final var responseInfo = authorizationService.signIn(requestInfo);
         final var responseCookie = refreshTokenCookies.issue(responseInfo.refreshToken());
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, responseCookie.toString())
-                .body(responseInfo.safe());
+                .body(profileTokenResponse(responseInfo.accessToken()));
     }
 
     @Operation(summary = "Выйти из профиля")
@@ -75,7 +87,7 @@ public class AuthorizationController {
     }
 
     @PostMapping("/refresh")
-    public ResponseEntity<AuthorizationTokenInfo> refresh(
+    public ResponseEntity<ProfileTokenResponse> refresh(
             @CookieValue(name = RefreshTokenCookies.NAME) String refreshToken
     ) {
         final var tokens = authorizationService.refresh(refreshToken);
@@ -83,7 +95,17 @@ public class AuthorizationController {
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, responseCookie.toString())
-                .body(new AuthorizationTokenInfo(tokens.accessToken(), null));
+                .body(profileTokenResponse(tokens.accessToken()));
+    }
+
+    /// Access-токен профиля и подсказка с правами для интерфейса. Права считаются по только что
+    /// выпущенному токену: системные — из его ролей, игровые — из БД. Cookie-рефреш бывает только
+    /// у профиля; для другого субъекта подсказка пустая.
+    private ProfileTokenResponse profileTokenResponse(String accessToken) {
+        final var permissions = clientPrincipalReader.read(accessToken) instanceof ApplicationClientPrincipal profile
+                ? serverAccessService.permissionsHint(profile)
+                : PermissionsHint.EMPTY;
+        return new ProfileTokenResponse(accessToken, permissions);
     }
 
     @PostMapping(
@@ -95,10 +117,11 @@ public class AuthorizationController {
             // Обязательность проверяет сервис: отсутствие — invalid_request в OAuth-формате, а не ErrorResponse Spring.
             @RequestParam(value = "client_id", required = false) String clientId,
             @RequestParam(value = "scope", required = false) String scope,
-            @RequestParam(value = "authorization_details", required = false) String authorizationDetails
+            @RequestParam(value = "authorization_details", required = false) String authorizationDetails,
+            HttpServletRequest request
     ) {
         // Ошибки device-authorize (DeviceAuthorizationException) → OAuth-формат в ApiExceptionHandler.
-        return ResponseEntity.ok(deviceAuthorizationService.authorize(clientId, scope, authorizationDetails));
+        return ResponseEntity.ok(deviceAuthorizationService.authorize(clientId, scope, authorizationDetails, AddressUtils.clientIp(request)));
     }
 
     /**
@@ -119,27 +142,40 @@ public class AuthorizationController {
             @RequestParam(value = "device_code", required = false) String deviceCode
     ) {
         if (grantType == null || grantType.isBlank()) {
-            throw new DeviceAuthorizationException(OAuthError.INVALID_REQUEST);
+            throw new DeviceAuthorizationException(OAuthError.INVALID_REQUEST, "grant_type is missing");
         }
 
         return switch (grantType) {
             case "refresh_token" -> refreshTokenGrant(refreshToken);
-            case "urn:ietf:params:oauth:grant-type:device_code" ->
-                    ResponseEntity.ok(deviceResponseMapper.toTokenResponse(deviceAuthorizationService.poll(clientId, deviceCode)));
-            default -> throw new DeviceAuthorizationException(OAuthError.UNSUPPORTED_GRANT_TYPE);
+            case "urn:ietf:params:oauth:grant-type:device_code" -> deviceCodeGrant(clientId, deviceCode);
+            default -> throw new DeviceAuthorizationException(OAuthError.UNSUPPORTED_GRANT_TYPE, "grant_type '%s' is not supported".formatted(grantType));
         };
+    }
+
+    /// RFC 8628 §3.4: опрос device_code. Вход профиля через device-flow — это браузер: refresh-токен профиля
+    /// кладём и в куку, как при входе по паролю, иначе {@code /auth/refresh} без куки отвечает 400 и
+    /// сессия кончается вместе с access-токеном. Сервер и игрок обновляются через тело ответа.
+    private ResponseEntity<Map<String, Object>> deviceCodeGrant(String clientId, String deviceCode) {
+        final var tokens = deviceAuthorizationService.poll(clientId, deviceCode);
+        final var response = ResponseEntity.ok();
+        if (tokens.refreshToken() != null
+                && clientPrincipalReader.read(tokens.accessToken()) instanceof ApplicationClientPrincipal) {
+            response.header(HttpHeaders.SET_COOKIE, refreshTokenCookies.issue(tokens.refreshToken()).toString());
+        }
+        return response.body(deviceResponseMapper.toTokenResponse(tokens));
     }
 
     /** RFC 6749 §6: обмен сервисного refresh-токена на свежий access (с ротацией refresh). */
     private ResponseEntity<Map<String, Object>> refreshTokenGrant(String refreshToken) {
         if (refreshToken == null || refreshToken.isBlank()) {
-            throw new DeviceAuthorizationException(OAuthError.INVALID_REQUEST);
+            throw new DeviceAuthorizationException(OAuthError.INVALID_REQUEST, "refresh_token is missing");
         }
 
         try {
             return ResponseEntity.ok(deviceResponseMapper.toTokenResponse(authorizationService.refresh(refreshToken)));
         } catch (InvalidRefreshTokenException e) {
-            throw new DeviceAuthorizationException(OAuthError.INVALID_GRANT);
+            // Причина (unknown, expired, reuse_detected, server_banned, player_unlinked, …) — в исходном исключении
+            throw new DeviceAuthorizationException(OAuthError.INVALID_GRANT, "refresh token rejected", e);
         }
     }
 
@@ -166,6 +202,16 @@ public class AuthorizationController {
     @GetMapping("/oauth/keys")
     public ResponseEntity<Map<String, Object>> jwks() {
         return ResponseEntity.ok(minecraftServerAccessTokenService.getJwks());
+    }
+
+    @Operation(summary = "Каталог прав: имя константы → код права. ETag — версия каталога, If-None-Match → 304")
+    @GetMapping("/permissions")
+    public ResponseEntity<Map<String, String>> permissions(WebRequest request) {
+        final var version = permissionCatalog.version();
+        if (request.checkNotModified(version)) {
+            return ResponseEntity.status(HttpStatus.NOT_MODIFIED).eTag(version).cacheControl(CacheControl.noCache()).build();
+        }
+        return ResponseEntity.ok().eTag(version).cacheControl(CacheControl.noCache()).body(permissionCatalog.permissions());
     }
 }
 

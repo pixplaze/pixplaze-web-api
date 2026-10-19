@@ -2,10 +2,8 @@ package com.pixplaze.api.web.controller;
 
 import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
 import com.pixplaze.api.web.data.dto.MinecraftServerBidInfo;
-import com.pixplaze.api.web.data.server.MinecraftServerBidStatus;
+import com.pixplaze.api.web.data.server.MinecraftServerRegistrationStatus;
 import com.pixplaze.api.web.exception.http.ConflictException;
-import com.pixplaze.api.web.exception.http.NotFoundException;
-import com.pixplaze.api.web.mapper.MinecraftServerMapper;
 import com.pixplaze.api.web.service.MinecraftServerBidService;
 import com.pixplaze.api.web.service.MinecraftServerEnrollmentService;
 import com.pixplaze.api.web.service.MinecraftServerService;
@@ -29,7 +27,6 @@ public class MinecraftServerAdminController {
     private final MinecraftServerService minecraftServerService;
     private final MinecraftServerBidService minecraftServerBidService;
     private final MinecraftServerEnrollmentService minecraftServerEnrollmentService;
-    private final MinecraftServerMapper minecraftServerMapper;
 
     @PostMapping("/{id}/ban")
     public ResponseEntity<Void> ban(@PathVariable Long id) {
@@ -37,26 +34,22 @@ public class MinecraftServerAdminController {
         return ResponseEntity.noContent().build();
     }
 
-    /// Заявки на регистрацию серверов, новые первыми; без {@code status} — все.
+    /// Заявки на регистрацию серверов (серверы с кодом), новые первыми; без {@code status} — все.
     @GetMapping("/bids")
-    public List<MinecraftServerBidInfo> getBids(@RequestParam(required = false) MinecraftServerBidStatus status) {
+    public List<MinecraftServerBidInfo> getBids(@RequestParam(required = false) MinecraftServerRegistrationStatus status) {
         return minecraftServerBidService.findInfos(status);
     }
 
-    /// Подтверждение заявки без плагина без проверки кода в MOTD — для известных владельцев.
+    /// Регистрация заявки без проверки кода в MOTD — для известных владельцев; {@code id} — id сервера.
     @PostMapping("/bids/{id}/approve")
     public ResponseEntity<MinecraftServerInfo> approveBid(@PathVariable Long id) {
-        final var bid = minecraftServerBidService.findById(id)
-                .orElseThrow(() -> new NotFoundException("Bid #%d not found!".formatted(id)));
-        final var server = minecraftServerEnrollmentService.enrollWithNativeIntegration(bid);
-        return ResponseEntity.status(HttpStatus.CREATED).body(minecraftServerMapper.toInfo(server));
+        final var server = minecraftServerEnrollmentService.enrollWithNativeIntegration(id);
+        return ResponseEntity.status(HttpStatus.CREATED).body(minecraftServerService.getServerInfo(server.getId()));
     }
 
-    /// Отклонение открытой заявки любого типа: адрес освобождается.
+    /// Отклонение открытой заявки: сервер остаётся в истории как REJECTED, адрес свободен для новых заявок.
     @PostMapping("/bids/{id}/reject")
     public ResponseEntity<Void> rejectBid(@PathVariable Long id) {
-        minecraftServerBidService.findById(id)
-                .orElseThrow(() -> new NotFoundException("Bid #%d not found!".formatted(id)));
         if (!minecraftServerBidService.reject(id)) {
             throw new ConflictException("Bid #%d is not pending!".formatted(id));
         }

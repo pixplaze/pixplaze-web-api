@@ -10,6 +10,9 @@ import com.pixplaze.api.web.service.server.model.MinecraftServerListing;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.context.event.ApplicationStartedEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -32,7 +35,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  *       виртуальные потоки), результат кладётся в стор; тик не блокируется мёртвыми серверами;</li>
  *   <li>{@link #publish()} — публикует накопленное для читателей (O(n) раз в интервал).</li>
  * </ul>
- * Прогрев — через {@code initialDelay}, без блокирующего {@code @PostConstruct}.
+ * Первая синхронизация ({@link #warmUp}) идёт сразу после старта в фоне и не держит запуск; пинг
+ * ждёт её завершения. Не удалась (БД недоступна) — приложение останавливается.
  */
 @Slf4j
 @Service
@@ -50,35 +54,55 @@ public class MinecraftServerListingRefreshService {
     @Value("${app.servers.warm-start.max-age:10m}")
     private Duration warmStartMaxAge;
 
+    /// Первая синхронизация в фоне: старт приложения её не ждёт, до её публикации читатели получают 503
+    /// ({@link MinecraftServerSnapshotStore#isReady}). Без базового набора листинг пуст, поэтому при ошибке
+    /// приложение останавливается, а не работает с пустым снапшотом.
+    @EventListener(ApplicationStartedEvent.class)
+    public void warmUp(ApplicationStartedEvent event) {
+        CompletableFuture.runAsync(this::loadBase, serverFetchExecutor).whenComplete((ignored, error) -> {
+            if (error == null) {
+                return;
+            }
+            log.error("Initial server base sync failed, shutting down", error);
+            System.exit(SpringApplication.exit(event.getApplicationContext(), () -> 1));
+        });
+    }
+
+    /// Плановая синхронизация; первая — {@link #warmUp}, поэтому начальная задержка равна интервалу.
     @Scheduled(
             fixedDelayString = "${app.servers.sync.millis:300000}",
-            initialDelayString = "${app.servers.sync.initial-millis:5000}"
+            initialDelayString = "${app.servers.sync.millis:300000}"
     )
     public void syncBase() {
         try {
-            final var hostsById = minecraftServerService.findAllHosts();
-            final var stateById = minecraftServerService.findAllStates();
-            final var ratingById = minecraftServerService.ratingAggregatesByServer();
-            final var now = Instant.now();
-
-            final var listed = minecraftServerService.findAllListed().stream()
-                    .map(server -> {
-                        final var state = stateById.get(server.getId());
-                        return MinecraftServerListing.of(
-                                server,
-                                hostsById.getOrDefault(server.getId(), ServerHosts.EMPTY),
-                                state != null ? state.getIntegrationStatus() : MinecraftServerStateInfo.IntegrationStatus.NATIVE,
-                                warmPing(state, now),
-                                ratingById.getOrDefault(server.getId(), ServerRatingAggregate.EMPTY));
-                    })
-                    .toList();
-            // Новые записи берут прогретую часть пинга из БД; у известных стор сохраняет собранное в памяти.
-            store.replaceAll(listed);
-            store.publish();
-            log.debug("Server base synced: {} listed servers", listed.size());
+            loadBase();
         } catch (Exception e) {
             log.warn("Server base sync failed: {}", e.toString());
         }
+    }
+
+    /// Базовый набор из БД в стор: описание, адреса, прогретое состояние и рейтинг.
+    private void loadBase() {
+        final var hostsById = minecraftServerService.findAllHosts();
+        final var stateById = minecraftServerService.findAllStates();
+        final var ratingById = minecraftServerService.ratingAggregatesByServer();
+        final var now = Instant.now();
+
+        final var listed = minecraftServerService.findAllListed().stream()
+                .map(server -> {
+                    final var state = stateById.get(server.getId());
+                    return MinecraftServerListing.of(
+                            server,
+                            hostsById.getOrDefault(server.getId(), ServerHosts.EMPTY),
+                            state != null ? state.getIntegrationStatus() : MinecraftServerStateInfo.IntegrationStatus.NATIVE,
+                            warmPing(state, now),
+                            ratingById.getOrDefault(server.getId(), ServerRatingAggregate.EMPTY));
+                })
+                .toList();
+        // Новые записи берут прогретую часть пинга из БД; у известных стор сохраняет собранное в памяти.
+        store.replaceAll(listed);
+        store.publish();
+        log.debug("Server base synced: {} listed servers", listed.size());
     }
 
     @Scheduled(
@@ -86,6 +110,10 @@ public class MinecraftServerListingRefreshService {
             initialDelayString = "${app.servers.ping-tick.initial-millis:10000}"
     )
     public void pingTick() {
+        // До прогрева пинговать некого
+        if (!store.isReady()) {
+            return;
+        }
         final var targets = throttle.selectDue(pingTargets());
         if (targets.isEmpty()) {
             return;

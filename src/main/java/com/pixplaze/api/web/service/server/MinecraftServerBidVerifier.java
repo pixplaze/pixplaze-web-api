@@ -1,12 +1,9 @@
 package com.pixplaze.api.web.service.server;
 
-import com.pixplaze.api.ext.data.server.MinecraftServerStateInfo;
-import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServerBid;
-import com.pixplaze.api.web.data.db.tables.pojos.VoucherCode;
+import com.pixplaze.api.web.data.server.ServerBid;
 import com.pixplaze.api.web.service.MinecraftServerBidService;
 import com.pixplaze.api.web.service.MinecraftServerEnrollmentService;
 import com.pixplaze.api.web.service.MinecraftServerMonitoringService;
-import com.pixplaze.api.web.service.VoucherCodeService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -20,8 +17,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.regex.Pattern;
 
 /**
- * Фоновое сопровождение заявок: закрывает просроченные (EXPIRED) и подтверждает заявки без плагина,
- * чей код владелец вставил в MOTD. Пинг идёт на {@code serverFetchExecutor}, чтобы мёртвые серверы
+ * Фоновое сопровождение заявок: закрывает просроченные (EXPIRED) и регистрирует заявки, чей код владелец
+ * вставил в MOTD (с плагином или без — плагин подключится к уже зарегистрированному серверу тем же кодом). Пинг идёт на {@code serverFetchExecutor}, чтобы мёртвые серверы
  * не держали общий поток планировщика. Заявка, не прошедшая проверку, ждёт следующего цикла или истечения срока.
  */
 @Slf4j
@@ -34,7 +31,6 @@ public class MinecraftServerBidVerifier {
 
     private final MinecraftServerBidService minecraftServerBidService;
     private final MinecraftServerEnrollmentService minecraftServerEnrollmentService;
-    private final VoucherCodeService voucherCodeService;
     private final MinecraftServerMonitoringService monitoringService;
     private final ExecutorService serverFetchExecutor;
 
@@ -49,43 +45,43 @@ public class MinecraftServerBidVerifier {
                 log.info("Server bids expired: {}", expired);
             }
 
-            for (final var bid : minecraftServerBidService.findPending(MinecraftServerStateInfo.IntegrationStatus.NATIVE)) {
-                voucherCodeService.findById(bid.getVoucherCodeId())
-                        .map(VoucherCode::getCode)
-                        .ifPresent(code -> verifyAsync(bid, code));
+            for (final var bid : minecraftServerBidService.findPending()) {
+                if (bid.host() != null) {
+                    verifyAsync(bid);
+                }
             }
         } catch (Exception e) {
             log.warn("Server bid verification failed: {}", e.toString());
         }
     }
 
-    private void verifyAsync(MinecraftServerBid bid, String code) {
+    private void verifyAsync(ServerBid bid) {
         CompletableFuture.supplyAsync(() -> pingMotd(bid), serverFetchExecutor)
                 .thenAccept(motd -> {
-                    if (containsCode(motd, code)) {
+                    if (containsCode(motd, bid.code())) {
                         approve(bid);
                     }
                 })
                 .exceptionally(error -> {
-                    log.debug("Bid #{} at {}:{} not verified — {}", bid.getId(), bid.getHost(), bid.getPort(), error.toString());
+                    log.debug("Bid #{} at {}:{} not verified — {}", bid.serverId(), bid.host(), bid.port(), error.toString());
                     return null;
                 });
     }
 
-    private String pingMotd(MinecraftServerBid bid) {
+    private String pingMotd(ServerBid bid) {
         try {
-            return monitoringService.ping(bid.getHost(), bid.getPort()).motd();
+            return monitoringService.ping(bid.host(), bid.port()).motd();
         } catch (IOException e) {
             throw new CompletionException(e);
         }
     }
 
-    private void approve(MinecraftServerBid bid) {
+    private void approve(ServerBid bid) {
         try {
-            final var server = minecraftServerEnrollmentService.enrollWithNativeIntegration(bid);
-            log.info("Bid #{} confirmed by MOTD: server #{} at {}:{}", bid.getId(), server.getId(), bid.getHost(), bid.getPort());
+            minecraftServerEnrollmentService.enrollWithNativeIntegration(bid.serverId());
+            log.info("Bid #{} confirmed by MOTD: server registered at {}:{}", bid.serverId(), bid.host(), bid.port());
         } catch (Exception e) {
-            log.warn("Bid #{} confirmed by MOTD but not approved: {}", bid.getId(), e.getMessage());
+            log.warn("Bid #{} confirmed by MOTD but not registered: {}", bid.serverId(), e.getMessage());
         }
     }
 

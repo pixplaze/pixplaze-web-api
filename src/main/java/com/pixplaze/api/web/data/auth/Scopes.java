@@ -23,8 +23,7 @@ public final class Scopes {
     private static final Set<String> SUPPORTED = Set.of(
             "AAD:USER",
             "MAD:MINECRAFT_SERVER",
-            "MAD:MINECRAFT_PLAYER",
-            "MAD:MINECRAFT_OPERATOR"
+            "MAD:MINECRAFT_PLAYER"
     );
 
     private Scopes() {
@@ -49,7 +48,7 @@ public final class Scopes {
 
         final var parts = scope.trim().split(":", -1);
         if (parts.length != 2) {
-            throw invalidScope();
+            throw invalidScope("scope '%s' is not <source>:<role>".formatted(scope));
         }
 
         final var source = Authority.Source.of(parts[0]);
@@ -57,17 +56,17 @@ public final class Scopes {
         try {
             role = Authority.Role.of(parts[1].toUpperCase(Locale.ROOT));
         } catch (IllegalStateException e) {
-            throw invalidScope();
+            throw invalidScope("unknown role in scope '%s'".formatted(scope));
         }
 
         if (!SUPPORTED.contains(source.code() + ":" + role.name())) {
-            throw invalidScope();
+            throw invalidScope("scope '%s' is not supported".formatted(scope));
         }
 
         return Authority.as(role).from(source).unauthorized();
     }
 
-    private static DeviceAuthorizationException invalidScope() {
-        return new DeviceAuthorizationException(OAuthError.INVALID_SCOPE);
+    private static DeviceAuthorizationException invalidScope(String reason) {
+        return new DeviceAuthorizationException(OAuthError.INVALID_SCOPE, reason);
     }
 }

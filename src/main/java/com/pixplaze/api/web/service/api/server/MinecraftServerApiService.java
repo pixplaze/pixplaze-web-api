@@ -7,6 +7,7 @@ import com.pixplaze.api.ext.data.server.MinecraftServerHostInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerStateInfo;
 import com.pixplaze.api.web.exception.MinecraftServerUnavailableException;
+import com.pixplaze.api.web.service.auth.SystemAccessTokenService;
 import com.pixplaze.api.web.util.AddressUtils;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -15,12 +16,20 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Objects;
 
+/// Клиент REST плагина одного сервера. Каждый запрос несёт свежий системный токен web-api
+/// ({@link SystemAccessTokenService}: {@code RSYS}, {@code src = SAD}, {@code aud} — этот сервер, минута
+/// жизни): токен выпускается заново на каждый запрос, без кеша.
 public class MinecraftServerApiService implements MinecraftServerApi {
+
+    private static final ParameterizedTypeReference<List<MinecraftPlayerInfo>> PLAYER_LIST = new ParameterizedTypeReference<>() {};
+    private static final ParameterizedTypeReference<List<MinecraftPluginInfo>> PLUGIN_LIST = new ParameterizedTypeReference<>() {};
 
     private final RestClient restClient;
 
-    public MinecraftServerApiService(MinecraftServerInfo pixplazeServerInfo) {
+    public MinecraftServerApiService(MinecraftServerInfo pixplazeServerInfo, SystemAccessTokenService systemAccessTokenService) {
+        final var serverId = Objects.requireNonNull(pixplazeServerInfo.id(), "Server 'id' must not be null!");
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(Duration.ofSeconds(1));
         requestFactory.setReadTimeout(Duration.ofSeconds(1));
@@ -28,6 +37,10 @@ public class MinecraftServerApiService implements MinecraftServerApi {
         this.restClient = RestClient.builder()
                 .requestFactory(requestFactory)
                 .baseUrl(buildApiBaseUrl(pixplazeServerInfo))
+                .requestInterceptor((request, body, execution) -> {
+                    request.getHeaders().setBearerAuth(systemAccessTokenService.issueFor(serverId));
+                    return execution.execute(request, body);
+                })
                 .build();
     }
 
@@ -52,68 +65,64 @@ public class MinecraftServerApiService implements MinecraftServerApi {
     public List<MinecraftPluginInfo> getInstalledPlugins() {
         return restClient.get().uri("/server/plugins/installed")
                 .retrieve()
-                .body(ParameterizedTypeReference.forType(MinecraftPluginInfo.class));
+                .body(PLUGIN_LIST);
     }
 
     @Override
     public List<MinecraftPluginInfo> getEnabledPlugins() {
         return restClient.get().uri("/server/plugins/enabled")
                 .retrieve()
-                .body(ParameterizedTypeReference.forType(MinecraftPluginInfo.class));
+                .body(PLUGIN_LIST);
     }
 
     @Override
     public List<MinecraftPlayerInfo> getOnlinePlayers() {
-        return restClient.get().uri("/server/players?view={view}")
-                .attribute("view", "online")
+        return restClient.get().uri("/server/players?view={view}", "online")
                 .retrieve()
-                .body(ParameterizedTypeReference.forType(MinecraftPlayerInfo.class));
+                .body(PLAYER_LIST);
     }
 
     @Override
     public List<MinecraftPlayerInfo> getOfflinePlayers() {
-        return restClient.get().uri("/server/players?view={view}")
-                .attribute("view", "offline")
+        return restClient.get().uri("/server/players?view={view}", "offline")
                 .retrieve()
-                .body(ParameterizedTypeReference.forType(MinecraftPlayerInfo.class));
+                .body(PLAYER_LIST);
     }
 
     @Override
     public List<MinecraftPlayerInfo> getBannedPlayers() {
-        return restClient.get().uri("/server/players?view={view}")
-                .attribute("view", "banned")
+        return restClient.get().uri("/server/players?view={view}", "banned")
                 .retrieve()
-                .body(ParameterizedTypeReference.forType(MinecraftPlayerInfo.class));
+                .body(PLAYER_LIST);
     }
 
     @Override
     public List<MinecraftPlayerInfo> getWhitelistedPlayers() {
-        return restClient.get().uri("/server/players?view={view}")
-                .attribute("view", "whitelisted")
+        return restClient.get().uri("/server/players?view={view}", "whitelisted")
                 .retrieve()
-                .body(ParameterizedTypeReference.forType(MinecraftPlayerInfo.class));
+                .body(PLAYER_LIST);
     }
 
     @Override
     public List<MinecraftPlayerInfo> getOpPlayers() {
-        return restClient.get().uri("/server/players?view={view}")
-                .attribute("view", "operators")
+        return restClient.get().uri("/server/players?view={view}", "operators")
                 .retrieve()
-                .body(ParameterizedTypeReference.forType(MinecraftPlayerInfo.class));
+                .body(PLAYER_LIST);
     }
 
     @Override
     public List<MinecraftPlayerInfo> getAllPlayers() {
-        return restClient.get().uri("/server/players?view={view}")
-                .attribute("view", "all")
+        return restClient.get().uri("/server/players?view={view}", "all")
                 .retrieve()
-                .body(ParameterizedTypeReference.forType(MinecraftPlayerInfo.class));
+                .body(PLAYER_LIST);
     }
 
-    /// База API плагина — адрес типа API; без него к плагину не обратиться.
-    private String buildApiBaseUrl(MinecraftServerInfo pixplazeServerInfo) {
+    /// База API плагина — адрес типа API; без него к плагину не обратиться. По https: системный токен не должен
+    /// идти открытым текстом, а TLS перед плагином и так нужен браузерам. Локальный плагин разработки — по http.
+    static String buildApiBaseUrl(MinecraftServerInfo pixplazeServerInfo) {
         final var api = pixplazeServerInfo.host(MinecraftServerHostInfo.Type.API)
                 .orElseThrow(() -> new MinecraftServerUnavailableException(pixplazeServerInfo));
-        return "http://" + AddressUtils.hostAndPort(api.address(), api.port());
+        final var scheme = AddressUtils.isLoopback(api.address()) ? "http://" : "https://";
+        return scheme + AddressUtils.hostAndPort(api.address(), api.port());
     }
 }

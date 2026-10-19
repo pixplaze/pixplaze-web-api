@@ -1,12 +1,12 @@
 package com.pixplaze.api.web.service;
 
+import com.pixplaze.api.ext.data.server.MinecraftServerHostInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
-import com.pixplaze.api.ext.data.server.MinecraftServerStateInfo;
-import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServerBid;
 import com.pixplaze.api.web.data.dto.MinecraftServerBidInfo;
 import com.pixplaze.api.web.data.dto.MinecraftServerBidRequest;
 import com.pixplaze.api.web.data.dto.MinecraftServerBidResponse;
-import com.pixplaze.api.web.data.server.MinecraftServerBidStatus;
+import com.pixplaze.api.web.data.server.MinecraftServerRegistrationStatus;
+import com.pixplaze.api.web.data.server.ServerBid;
 import com.pixplaze.api.web.data.voucher.VoucherCodeType;
 import com.pixplaze.api.web.exception.MinecraftServerAddressTakenException;
 import com.pixplaze.api.web.exception.http.ConflictException;
@@ -16,6 +16,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
@@ -24,6 +25,11 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
+/**
+ * Заявки на регистрацию: заявка — сервер в статусе PENDING с игровым адресом, код регистрации — одноразовый
+ * ваучер, связанный с сервером в {@code minecraft_server_bid}. Регистрация по коду — в
+ * {@link MinecraftServerEnrollmentService}.
+ */
 @Service
 @RequiredArgsConstructor
 public class MinecraftServerBidService {
@@ -33,124 +39,88 @@ public class MinecraftServerBidService {
     private final MinecraftServerService minecraftServerService;
     private final TransactionTemplate transactionTemplate;
 
-    /// Срок жизни открытой заявки от создания; после него она закрывается как EXPIRED и освобождает адрес.
+    /// Срок жизни открытой заявки от выдачи последнего кода; после него она закрывается как EXPIRED.
     @Value("${app.servers.bids.ttl:7d}")
     private Duration bidTtl;
 
-    public MinecraftServerBid create(MinecraftServerBid bid) {
-        return minecraftServerBidRepository.create(bid);
-    }
-
     /**
-     * Заявка владельца на регистрацию сервера: возвращает код заявки и превью сервера. Без плагина
-     * сервер обязан отвечать на пинг (код подтверждается через его MOTD), иначе 503; с плагином пинг
-     * нужен только для иконки в превью, и недоступный сервер её просто не получит.
-     *
-     * <p>Пинг идёт до транзакции, чтобы соединение с БД не ждало сетевого таймаута; запись заявки —
-     * отдельной транзакцией.
+     * Заявка владельца: сервер в статусе PENDING и код для MOTD. Пинг нужен только для иконки в превью —
+     * недоступный сервер её просто не получит; идёт до транзакции, чтобы соединение с БД не ждало таймаута.
      */
     public MinecraftServerBidResponse createBid(MinecraftServerBidRequest request, Long ownerProfileId) {
-        final var integration = Boolean.TRUE.equals(request.isIntegration())
-                ? MinecraftServerStateInfo.IntegrationStatus.PLUGIN
-                : MinecraftServerStateInfo.IntegrationStatus.NATIVE;
-
-        final var online = integration == MinecraftServerStateInfo.IntegrationStatus.NATIVE
-                ? Optional.of(minecraftServerService.requireOnline(request.host(), request.port()))
-                : minecraftServerService.pingServer(request.host(), request.port());
-
-        final var code = transactionTemplate.execute(status -> issueBid(
-                request.name(), request.host(), request.port(), request.ownerUsername(), integration, ownerProfileId
-        ));
+        final var online = minecraftServerService.pingServer(request.host(), request.port());
+        final var code = transactionTemplate.execute(status -> issueBid(request.name(), request.host(), request.port(), ownerProfileId));
         final var preview = MinecraftServerInfo.preview(
                 request.name(), request.host(), request.port(), online.map(MinecraftServerInfo::iconBase64).orElse(null)
         );
         return new MinecraftServerBidResponse(code, preview);
     }
 
-    /**
-     * Создаёт заявку владельца и выпускает её одноразовый код, привязанный к профилю владельца.
-     * С плагином это enrollment-ваучер для конфига плагина (сервер предъявит его при регистрации),
-     * без плагина — код для MOTD, по которому принадлежность сервера подтверждается пингом.
-     * Код из MOTD публичен, поэтому сам по себе ничего не авторизует. Возвращает сырой код.
-     */
-    private String issueBid(
-            String name,
-            String host,
-            Integer port,
-            String ownerUsername,
-            MinecraftServerStateInfo.IntegrationStatus integration,
-            Long ownerProfileId
-    ) {
-        // Сервер с этим игровым адресом уже зарегистрирован: регистрация по такой заявке всё равно упадёт.
+    /// Создаёт сервер-заявку и выдаёт ему одноразовый код, привязанный к профилю владельца. Код стоит в MOTD
+    /// и публичен: сам по себе он ничего не авторизует. Возвращает сырой код.
+    private String issueBid(String name, String host, Integer port, Long ownerProfileId) {
         if (minecraftServerRepository.isGameHostTaken(host, port)) {
             throw new MinecraftServerAddressTakenException(host, port);
         }
 
-        final var voucher = voucherCodeService.issue(VoucherCodeType.INVITE_MINECRAFT_SERVER, 1);
-
+        final Long serverId;
         try {
-            create(new MinecraftServerBid()
-                    .setName(name)
-                    .setHost(host)
-                    .setPort(port)
-                    .setOwnerUsername(ownerUsername)
-                    .setIntegration(integration)
-                    .setVoucherCodeId(voucher.getId())
-                    .setProfileId(ownerProfileId));
+            serverId = minecraftServerRepository.createPending(name, ownerProfileId, MinecraftServerHostInfo.server(host, port)).getId();
         } catch (DuplicateKeyException e) {
-            throw new ConflictException("A bid for '%s:%s' is already pending!".formatted(host, port));
+            throw new ConflictException("The address '%s:%s' is already taken!".formatted(host, port));
         }
 
+        final var voucher = voucherCodeService.issue(VoucherCodeType.INVITE_MINECRAFT_SERVER, 1);
+        minecraftServerBidRepository.create(serverId, voucher.getId());
         voucherCodeService.bind(voucher.getId(), ownerProfileId);
-
         return voucher.getCode();
     }
 
-    /// Открытая заявка на игровой адрес.
-    public Optional<MinecraftServerBid> findPendingByAddress(String host, Integer port) {
-        return minecraftServerBidRepository.findPendingByAddress(host, port);
+    /// Заявка по коду регистрации (любого статуса); неизвестный код или код не заявки — пусто.
+    public Optional<ServerBid> findByCode(String code) {
+        return voucherCodeService.findByCode(code)
+                .filter(voucher -> voucher.getType() == VoucherCodeType.INVITE_MINECRAFT_SERVER)
+                .flatMap(voucher -> minecraftServerBidRepository.findByVoucherCodeId(voucher.getId()));
     }
 
-    public Optional<MinecraftServerBid> findById(Long id) {
-        return minecraftServerBidRepository.findById(id);
+    /// Заявка сервера с последним кодом.
+    public Optional<ServerBid> findLatest(Long serverId) {
+        return minecraftServerBidRepository.findLatest(serverId);
     }
 
-    /// Открытые заявки ({@code integration == null} — любые), старые первыми.
-    public List<MinecraftServerBid> findPending(MinecraftServerStateInfo.IntegrationStatus integration) {
-        return minecraftServerBidRepository.findPending(integration);
+    /// Открытые заявки с последним кодом, старые первыми.
+    public List<ServerBid> findPending() {
+        return minecraftServerBidRepository.findPending();
     }
 
-    /// Закрывает заявку как одобренную: сервер зарегистрирован, адрес свободен для новых заявок.
-    /// {@code false} — заявка уже закрыта.
-    public boolean approve(Long id) {
-        return minecraftServerBidRepository.setStatus(id, MinecraftServerBidStatus.APPROVED);
-    }
-
-    /// Отклоняет открытую заявку. {@code false} — заявка уже закрыта.
-    public boolean reject(Long id) {
-        return minecraftServerBidRepository.setStatus(id, MinecraftServerBidStatus.REJECTED);
+    /// Отклоняет открытую заявку; адрес остаётся историей, пока его не займёт другой сервер.
+    /// {@code false} — сервер уже не заявка.
+    public boolean reject(Long serverId) {
+        return minecraftServerRepository.setStatus(serverId, MinecraftServerRegistrationStatus.REJECTED).isPresent();
     }
 
     /// Закрывает просроченные открытые заявки (EXPIRED); возвращает их число.
+    @Transactional
     public int expireOverdue() {
-        return minecraftServerBidRepository.expirePendingCreatedBefore(OffsetDateTime.now().minus(bidTtl));
+        return minecraftServerBidRepository.expirePendingIssuedBefore(OffsetDateTime.now().minus(bidTtl)).size();
     }
 
     /// Заявки профиля для страницы «мои заявки», новые первыми.
     public List<MinecraftServerBidInfo> findInfosOf(Long profileId) {
-        return withExpiry(minecraftServerBidRepository.findInfos(Objects.requireNonNull(profileId), null));
+        return toInfos(minecraftServerBidRepository.findLatest(Objects.requireNonNull(profileId), null));
     }
 
     /// Заявки для админа; {@code status == null} — все.
-    public List<MinecraftServerBidInfo> findInfos(MinecraftServerBidStatus status) {
-        return withExpiry(minecraftServerBidRepository.findInfos(null, status));
+    public List<MinecraftServerBidInfo> findInfos(MinecraftServerRegistrationStatus status) {
+        return toInfos(minecraftServerBidRepository.findLatest(null, status));
     }
 
-    private List<MinecraftServerBidInfo> withExpiry(List<MinecraftServerBidInfo> bids) {
+    private List<MinecraftServerBidInfo> toInfos(List<ServerBid> bids) {
         return bids.stream()
-                .map(bid -> bid.status() != MinecraftServerBidStatus.PENDING ? bid : new MinecraftServerBidInfo(
-                        bid.id(), bid.name(), bid.host(), bid.port(), bid.integration(), bid.status(), bid.inviteCode(),
-                        bid.ownerUsername(), bid.applicant(), bid.createdAt(), bid.createdAt().plus(bidTtl)))
+                .map(bid -> new MinecraftServerBidInfo(
+                        bid.serverId(), bid.name(), bid.host(), bid.port(), bid.status(), bid.code(), bid.ownerName(),
+                        bid.createdAt(),
+                        bid.status() == MinecraftServerRegistrationStatus.PENDING ? bid.createdAt().plus(bidTtl) : null))
                 .toList();
     }
 }

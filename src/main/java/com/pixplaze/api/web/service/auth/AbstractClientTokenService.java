@@ -1,5 +1,6 @@
 package com.pixplaze.api.web.service.auth;
 
+import com.pixplaze.api.ext.data.auth.AuthorityClaims;
 import com.pixplaze.api.web.data.user.ClientPrincipal;
 
 import java.time.Duration;
@@ -9,7 +10,7 @@ import java.util.Map;
 
 /**
  * База token-сервисов, выпускающих access-токен на конкретный тип {@link ClientPrincipal}.
- * Общая часть {@code buildClaims} (роли/источник/права через {@link AccessTokenClaims}) +
+ * Общая часть {@code buildClaims} (роли и источник через {@link AuthorityClaims}) +
  * абстрактная запись identity конкретного принципала. Чтение токена обратно в принципал —
  * не здесь: это static {@code toPrincipal(...)} у каждого подкласса, маршрутизируемые
  * {@code ClientPrincipalReader} по ролям.
@@ -31,9 +32,9 @@ public abstract class AbstractClientTokenService<E extends ClientPrincipal> exte
     }
 
     /// {@code aud} токена ≡ {@link com.pixplaze.api.ext.data.auth.Authority#targets()} принципала.
-    /// Единый источник аудитории: она проставляется в момент выдачи (host игрока, gateway+host
-    /// сервера, gateway+хосты-операторские у профиля) и переживает ротацию (auth_targets хранится
-    /// в refresh-токене и реплеится). Поэтому отдельных override'ов аудитории у подклассов нет.
+    /// Аудиторию проставляет тот, кто собирает принципал: стратегия device-flow при выдаче и
+    /// {@code AuthorizationService.refresh} при ротации (выводит её из БД). Поэтому отдельных
+    /// override'ов аудитории у подклассов нет.
     @Override
     protected Collection<String> audience(E identity) {
         return identity.getAuthority().targets();
@@ -42,7 +43,7 @@ public abstract class AbstractClientTokenService<E extends ClientPrincipal> exte
     @Override
     public Map<String, Object> buildClaims(E identity) {
         final var claims = new HashMap<String, Object>();
-        AccessTokenClaims.writeAuthority(claims, identity.getAuthority());
+        AuthorityClaims.write(claims, identity.getAuthority());
         writeIdentityClaims(identity, claims);
         return claims;
     }

@@ -1,5 +1,7 @@
 package com.pixplaze.api.web.service;
 
+import com.pixplaze.api.ext.data.server.MinecraftServerHeartbeatInfo;
+import com.pixplaze.api.ext.data.server.MinecraftServerHeartbeatResponse;
 import com.pixplaze.api.ext.data.server.MinecraftServerHostInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerStateInfo;
@@ -11,8 +13,10 @@ import com.pixplaze.api.web.data.server.ServerRatingAggregate;
 import com.pixplaze.api.web.exception.MinecraftServerUnavailableException;
 import com.pixplaze.api.web.exception.http.BadRequestException;
 import com.pixplaze.api.web.exception.http.NotFoundException;
+import com.pixplaze.api.web.exception.http.ServiceUnavailableException;
 import com.pixplaze.api.web.repository.MinecraftPlayerRepository;
 import com.pixplaze.api.web.repository.MinecraftServerRepository;
+import com.pixplaze.api.web.service.presence.MinecraftPresenceService;
 import com.pixplaze.api.web.service.server.MinecraftServerListingAssembler;
 import com.pixplaze.api.web.service.server.MinecraftServerSnapshotStore;
 import com.pixplaze.api.web.service.server.event.MinecraftServerBanned;
@@ -44,12 +48,13 @@ public class MinecraftServerService {
     private final MinecraftServerListingAssembler minecraftServerListingAssembler;
     private final MinecraftServerMonitoringService minecraftServerMonitoringService;
     private final ApplicationEventPublisher eventPublisher;
+    private final MinecraftPresenceService minecraftPresenceService;
 
     /// Страница листинга из материализованного снапшота (без сетевого I/O; тир зависит от online/plugin).
     /// Порядок операций: фильтр по {@code search} → пагинация, чтобы offset/limit считались от совпадений.
     public List<MinecraftServerInfo> listServers(String search, int limit, int offset) {
         final var paging = PagingUtils.of(limit, offset);
-        var stream = minecraftServerSnapshotStore.findAll().stream()
+        var stream = readySnapshot().findAll().stream()
                 .map(minecraftServerListingAssembler::toServerInfo);
 
         if (search != null && !search.isBlank()) {
@@ -84,28 +89,50 @@ public class MinecraftServerService {
 
     /// Один сервер по id из снапшота ({@code null} → 404 на контроллере).
     public MinecraftServerInfo getServerInfo(Long id) {
-        return minecraftServerSnapshotStore.find(id)
+        return readySnapshot().find(id)
                 .map(minecraftServerListingAssembler::toServerInfo)
                 .orElse(null);
     }
 
+    /// Серверы по id из снапшота в том же виде, что и листинг, в порядке {@code ids}; неизвестные id опускаются.
+    /// Сведения о серверах для API собираются только так: в строке БД нет адресов, состояния и рейтинга.
+    public List<MinecraftServerInfo> getServerInfos(Collection<Long> ids) {
+        final var snapshot = readySnapshot();
+        return ids.stream()
+                .map(snapshot::find)
+                .flatMap(Optional::stream)
+                .map(minecraftServerListingAssembler::toServerInfo)
+                .toList();
+    }
+
     /// Состояние набора серверов (веб-апп refresh, POST /servers/state); неизвестные id опускаются.
     public List<MinecraftServerStateInfo> getServerStates(Collection<Long> ids) {
+        final var snapshot = readySnapshot();
         return ids.stream()
-                .map(minecraftServerSnapshotStore::find)
+                .map(snapshot::find)
                 .flatMap(Optional::stream)
                 .map(minecraftServerListingAssembler::toStateInfo)
                 .toList();
     }
 
+    /// Снапшот для чтения. До прогрева он пуст, и пустой ответ выглядел бы как «серверов нет»
+    /// (web-app сбросил бы выбранный сервер), поэтому до тех пор — 503.
+    private MinecraftServerSnapshotStore readySnapshot() {
+        if (!minecraftServerSnapshotStore.isReady()) {
+            throw new ServiceUnavailableException("Server listing is warming up");
+        }
+        return minecraftServerSnapshotStore;
+    }
+
     /**
-     * Heartbeat плагина ({@link MinecraftServerInfo#heartbeat}): берём только то, за что отвечает плагин.
+     * Heartbeat плагина ({@link MinecraftServerHeartbeatInfo}): берём только то, за что отвечает плагин.
      * Состояние пересобирается через {@link MinecraftServerStateInfo#heartbeat} — id сервера (из токена,
      * а не тела), списки игроков и прочие поля отбрасываются; плагины — в снапшот; лицензия — в БД, если
      * изменилась. Адреса, имя, motd, ядро и иконка из тела игнорируются: у них другие источники.
      * Часть плагина гаснет по TTL в ассемблере. No-op для снапшота, если сервера в нём ещё нет.
+     * Снимок игроков ({@code playersHash}/{@code players}) — в {@link MinecraftPresenceService}.
      */
-    public void handleHeartbeat(Long serverId, MinecraftServerInfo heartbeat) {
+    public MinecraftServerHeartbeatResponse handleHeartbeat(Long serverId, MinecraftServerHeartbeatInfo heartbeat) {
         final var state = heartbeat.state();
         if (state != null) {
             final var players = state.players();
@@ -122,6 +149,7 @@ public class MinecraftServerService {
         }
 
         updateLicense(serverId, heartbeat.isLicense());
+        return new MinecraftServerHeartbeatResponse(minecraftPresenceService.accept(serverId, heartbeat));
     }
 
     /// Описание, которое web-api узнаёт пингом: пишет в БД только изменение и обновляет снапшот.
@@ -154,6 +182,10 @@ public class MinecraftServerService {
         return minecraftServerRepository.ratingAggregatesByServer();
     }
 
+    public boolean isPlayerServerMember(UUID playerUuid, Long serverId) {
+        return minecraftServerRepository.isPlayerServerMember(playerUuid, serverId);
+    }
+
     public boolean isPlayerServerOperator(UUID playerUuid, Long serverId) {
         return minecraftServerRepository.isPlayerServerOperator(playerUuid, serverId);
     }
@@ -177,20 +209,22 @@ public class MinecraftServerService {
         return minecraftServerRepository.findAllStates();
     }
 
+    /// Зарегистрированный сервер (ACTIVE); заявки и закрытые не находятся.
     public Optional<MinecraftServer> findById(Long id) {
         return minecraftServerRepository.findById(id);
     }
 
-    /// Создаёт сервер с адресами и строкой состояния в момент успешной регистрации. После коммита
-    /// сервер сразу попадает в снапшот: в листинг — с ближайшим publish, в пинг — со следующим тиком.
-    public MinecraftServer create(
-            MinecraftServer server,
-            MinecraftServerStateInfo.IntegrationStatus integrationStatus,
-            Collection<MinecraftServerHostInfo> hosts
-    ) {
-        final var created = minecraftServerRepository.create(server, integrationStatus, hosts);
-        eventPublisher.publishEvent(new MinecraftServerCreated(created, integrationStatus));
-        return created;
+    /// Сервер в любом статусе — для заявок и регистрации.
+    public Optional<MinecraftServer> findAnyById(Long id) {
+        return minecraftServerRepository.findAnyById(id);
+    }
+
+    /// Регистрирует заявку (PENDING → ACTIVE) со строкой состояния. После коммита сервер сразу попадает в
+    /// снапшот: в листинг — с ближайшим publish, в пинг — со следующим тиком. Пусто — сервер уже не заявка.
+    public Optional<MinecraftServer> activate(Long serverId, MinecraftServerStateInfo.IntegrationStatus integrationStatus) {
+        final var activated = minecraftServerRepository.activate(serverId, integrationStatus);
+        activated.ifPresent(server -> eventPublisher.publishEvent(new MinecraftServerCreated(server, integrationStatus)));
+        return activated;
     }
 
     /// Игровой адрес (HOST) сервера, если сервер существует.
@@ -215,9 +249,9 @@ public class MinecraftServerService {
                 .ifPresent(updated -> eventPublisher.publishEvent(new MinecraftServerChanged(updated)));
     }
 
-    /// Пакетно привязывает операторов; владелец помечается is_owner.
-    public void linkOperators(Long serverId, Collection<UUID> operatorUuids, UUID ownerUuid) {
-        minecraftServerRepository.linkOperators(serverId, operatorUuids, ownerUuid);
+    /// Пакетно привязывает операторов; владельца задаёт {@code owner_profile_id}, а не эта связь.
+    public void linkOperators(Long serverId, Collection<UUID> operatorUuids) {
+        minecraftServerRepository.linkOperators(serverId, operatorUuids);
     }
 
     /// Перманентный бан сервера по его identity: отметка {@code banned_at}; в той же транзакции
@@ -239,6 +273,21 @@ public class MinecraftServerService {
     /// Фиксирует членство вошедшего игрока на сервере (idempotent upsert; обновляет is_operator).
     public void linkPlayer(Long serverId, UUID playerUuid, boolean isOperator) {
         minecraftServerRepository.upsertPlayer(serverId, playerUuid, isOperator);
+    }
+
+    /// Основной игрок профиля на сервере: {@code sub} токена доступа к плагину.
+    public Optional<UUID> findPrimaryPlayer(Long profileId, Long serverId) {
+        return minecraftServerRepository.findPrimaryPlayer(profileId, serverId);
+    }
+
+    /// Назначает основного игрока, если у профиля на сервере его нет (после привязки или отвязки игрока).
+    public void ensurePrimaryPlayer(Long profileId, Long serverId) {
+        minecraftServerRepository.ensurePrimaryPlayer(profileId, serverId);
+    }
+
+    /// Переключатель «основной» в настройках. {@code false} — игрок не принадлежит профилю или не на сервере.
+    public boolean setPrimaryPlayer(Long profileId, Long serverId, UUID playerUuid) {
+        return minecraftServerRepository.setPrimaryPlayer(profileId, serverId, playerUuid);
     }
 
     public void addFavorite(Long serverId, Long profileId) {
@@ -271,8 +320,9 @@ public class MinecraftServerService {
         minecraftServerRepository.removeFavorite(Set.copyOf(serverIds), profileId);
     }
 
-    public List<MinecraftServer> getFavorite(Long profileId) {
-        return minecraftServerRepository.getFavorite(profileId);
+    /// Избранные серверы профиля в порядке добавления.
+    public List<MinecraftServerInfo> getFavorite(Long profileId) {
+        return getServerInfos(minecraftServerRepository.getFavoriteIds(profileId));
     }
 
     public Optional<MinecraftServerInfo> pingServer(

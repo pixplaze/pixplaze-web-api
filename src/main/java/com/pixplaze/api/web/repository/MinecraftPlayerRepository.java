@@ -3,7 +3,6 @@ package com.pixplaze.api.web.repository;
 import com.pixplaze.api.ext.data.player.MinecraftPlayerInfo;
 import com.pixplaze.api.web.data.db.tables.pojos.MinecraftPlayer;
 import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
-import com.pixplaze.api.web.exception.http.NotImplementedException;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
@@ -123,7 +122,7 @@ public class MinecraftPlayerRepository {
 
     /// Связанные с профилем игроки для веб-приложения: uuid, имя, голова скина и флаг оператора
     /// (true, если игрок — оператор хотя бы на одном сервере). Остальные поля {@link MinecraftPlayerInfo}
-    /// не заполняются (в web не нужны). Источник ролей MINECRAFT_PLAYER/MINECRAFT_OPERATOR.
+    /// не заполняются (в web не нужны).
     public List<MinecraftPlayer> findLinkedByProfileId(Long profileId) {
         final var isOperator = DSL.field(DSL.exists(
                 dslContext.selectOne()
@@ -154,6 +153,37 @@ public class MinecraftPlayerRepository {
                 .fetch(MINECRAFT_SERVER_PLAYER.MINECRAFT_SERVER_ID);
     }
 
+    /// Время выхода из сети для игроков, привязанных к профилю: «был в сети N минут назад» для друзей.
+    /// Непривязанные игроки не пишутся.
+    public void markLastSeen(Collection<UUID> playerUuids) {
+        if (playerUuids.isEmpty()) {
+            return;
+        }
+        dslContext.update(MINECRAFT_PLAYER)
+                .set(MINECRAFT_PLAYER.LAST_SEEN_AT, DSL.currentOffsetDateTime())
+                .where(MINECRAFT_PLAYER.UUID.in(playerUuids))
+                .and(DSL.exists(dslContext.selectOne()
+                        .from(MINECRAFT_PLAYER_PROFILE)
+                        .where(MINECRAFT_PLAYER_PROFILE.MINECRAFT_PLAYER_UUID.eq(MINECRAFT_PLAYER.UUID))))
+                .execute();
+    }
+
+    /// Ник известного игрока из снимка heartbeat. Пишется только изменение; неизвестный игрок не создаётся.
+    public void updateUsername(UUID playerUuid, String username) {
+        PartialUpdate.of(dslContext, MINECRAFT_PLAYER)
+                .set(MINECRAFT_PLAYER.USERNAME, username)
+                .execute(MINECRAFT_PLAYER.UUID.eq(playerUuid), MinecraftPlayer.class);
+    }
+
+    /// Есть ли у профиля хотя бы один привязанный игрок.
+    public boolean hasLinkedPlayer(Long profileId) {
+        return dslContext.fetchExists(
+                dslContext.selectOne()
+                        .from(MINECRAFT_PLAYER_PROFILE)
+                        .where(MINECRAFT_PLAYER_PROFILE.PROFILE_ID.eq(profileId))
+        );
+    }
+
     /** UUID игрока, привязанного к профилю. Если игроков несколько — берём последнего привязанного. */
     public Optional<UUID> findUuidByProfileId(Long profileId) {
         return dslContext.select(MINECRAFT_PLAYER_PROFILE.MINECRAFT_PLAYER_UUID)
@@ -164,8 +194,14 @@ public class MinecraftPlayerRepository {
                 .fetchOptional(MINECRAFT_PLAYER_PROFILE.MINECRAFT_PLAYER_UUID);
     }
 
+    /// Привязан ли игрок именно к этому профилю.
     public boolean isProfileOwnsPlayer(Long profileId, UUID playerUuid) {
-        throw new NotImplementedException();
+        return dslContext.fetchExists(
+                dslContext.selectOne()
+                        .from(MINECRAFT_PLAYER_PROFILE)
+                        .where(MINECRAFT_PLAYER_PROFILE.MINECRAFT_PLAYER_UUID.eq(playerUuid))
+                        .and(MINECRAFT_PLAYER_PROFILE.PROFILE_ID.eq(profileId))
+        );
     }
 
     /// Привязан ли игрок хоть к какому-нибудь профилю (игрок не может быть привязан к нескольким).

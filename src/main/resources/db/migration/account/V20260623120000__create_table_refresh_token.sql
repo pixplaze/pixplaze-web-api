@@ -6,17 +6,12 @@ CREATE TABLE refresh_token (
     subject_type VARCHAR(16) NOT NULL DEFAULT 'PROFILE',
     -- владелец-профиль: обязателен для PROFILE; для связанного игрока/оператора (src=AAD) тоже заполнен, иначе NULL
     profile_id BIGINT REFERENCES profile(id) ON DELETE CASCADE,
-    -- для серверных (MAD) токенов: к какому серверу привязан refresh; иначе NULL
+    -- сервер: владелец серверного токена; для игрока — сервер, через который он вошёл (из него
+    -- refresh выводит роли и аудиторию); иначе NULL
     minecraft_server_id BIGINT REFERENCES minecraft_server(id) ON DELETE CASCADE,
     -- для игроковых/операторских токенов: к какому игроку привязан refresh; иначе NULL
     minecraft_player_uuid UUID REFERENCES minecraft_player(uuid) ON DELETE CASCADE,
-    -- контекст для перевыпуска access-токена (Authority.Source / набор Authority.Role)
-    auth_source VARCHAR(8) NOT NULL,
-    -- набор ролей как CSV кодов Authority.Role#code (RUSR,RADM,RSYS,RMCP,RMCO,RMCS)
-    auth_roles VARCHAR(64) NOT NULL,
-    -- аудитория токена (aud == Authority.targets()) как CSV зон: gateway и идентификаторы серверов;
-    -- реплеится в новый access-токен при ротации
-    auth_targets VARCHAR(512) NOT NULL DEFAULT '',
+    -- роли, источник и аудиторию токен не хранит: refresh выводит их из БД по subject_type
     issued_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
     last_used_at TIMESTAMP WITH TIME ZONE,
@@ -27,7 +22,7 @@ CREATE TABLE refresh_token (
     CONSTRAINT chk_refresh_token_owner CHECK (
         (subject_type = 'PROFILE'          AND profile_id IS NOT NULL) OR
         (subject_type = 'MINECRAFT_SERVER' AND minecraft_server_id IS NOT NULL) OR
-        (subject_type IN ('MINECRAFT_PLAYER', 'MINECRAFT_OPERATOR') AND minecraft_player_uuid IS NOT NULL)
+        (subject_type = 'MINECRAFT_PLAYER' AND minecraft_player_uuid IS NOT NULL)
     )
 );
 

@@ -24,7 +24,7 @@ class ScopesTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"MAD:MINECRAFT_SERVER", "MAD:RMCS", "mad:minecraft_player", "MAD:MINECRAFT_OPERATOR", "AAD:USER"})
+    @ValueSource(strings = {"MAD:MINECRAFT_SERVER", "MAD:RMSV", "mad:minecraft_player", "AAD:USER"})
     void acceptsSupportedScopes(String scope) {
         Scopes.toAuthority(scope);
     }
@@ -33,7 +33,7 @@ class ScopesTest {
     @ValueSource(strings = {
             "MAD", "MAD:", ":USER", "MAD:MINECRAFT_PLAYER:X",
             "XYZ:USER", "MAD:FOO",
-            "MAD:USER", "AAD:ADMIN", "AAD:SYSTEM", "AAD:MINECRAFT_SERVER", "NAD:USER",
+            "MAD:USER", "MAD:MINECRAFT_OPERATOR", "AAD:ADMIN", "AAD:SYSTEM", "AAD:MINECRAFT_SERVER", "NAD:USER",
             "MAD:MINECRAFT_PLAYER AAD:USER"
     })
     void rejectsMalformedOrUnsupportedScopes(String scope) {

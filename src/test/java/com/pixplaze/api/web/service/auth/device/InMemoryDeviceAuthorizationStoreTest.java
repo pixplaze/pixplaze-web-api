@@ -38,7 +38,7 @@ class InMemoryDeviceAuthorizationStoreTest {
     private final InMemoryDeviceAuthorizationStore store = new InMemoryDeviceAuthorizationStore(clock);
 
     private static DeviceAuthorizationRequest request(String hash, String userCode) {
-        return new DeviceAuthorizationRequest("client", userCode, hash, "AAD:USER");
+        return new DeviceAuthorizationRequest("client", userCode, hash, "AAD:USER", null);
     }
 
     private static ApproverDecision decision(DeviceAuthorizationDecision decision) {

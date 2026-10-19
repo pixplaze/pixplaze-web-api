@@ -2,7 +2,6 @@ package com.pixplaze.api.web.service;
 
 import com.pixplaze.api.ext.data.auth.Authority;
 import com.pixplaze.api.web.configuration.security.SecurityConfiguration;
-import com.pixplaze.api.ext.data.auth.MinecraftServerTargets;
 import com.pixplaze.api.web.data.db.tables.pojos.MinecraftPlayer;
 import com.pixplaze.api.web.data.db.tables.pojos.Profile;
 import com.pixplaze.api.web.data.dto.ProfileInfo;
@@ -12,7 +11,6 @@ import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
 import com.pixplaze.api.web.exception.http.BadRequestException;
 import com.pixplaze.api.web.exception.http.ConflictException;
 import com.pixplaze.api.web.mapper.MinecraftPlayerMapper;
-import com.pixplaze.api.web.mapper.MinecraftServerMapper;
 import com.pixplaze.api.web.mapper.ProfileMapper;
 import com.pixplaze.api.web.repository.ProfileRepository;
 import lombok.RequiredArgsConstructor;
@@ -36,7 +34,6 @@ public class ProfileService {
     private final MinecraftPlayerService minecraftPlayerService;
     private final MinecraftServerService minecraftServerService;
     private final MinecraftPlayerMapper minecraftPlayerMapper;
-    private final MinecraftServerMapper minecraftServerMapper;
     private final PasswordEncoder passwordEncoder;
 
     @Value("${app.url.api.gateway}")
@@ -78,6 +75,10 @@ public class ProfileService {
                 throw new ConflictException("Email '%s' is already taken!".formatted(request.email()));
             }
             profile.setEmail(request.email());
+        }
+
+        if (request.isOnlineHidden() != null) {
+            profile.setIsOnlineHidden(request.isOnlineHidden());
         }
 
         try {
@@ -128,10 +129,7 @@ public class ProfileService {
                 .stream()
                 .map(minecraftPlayerMapper::toInfo)
                 .toList();
-        final var profileFavoriteServers = minecraftServerService.getFavorite(profileId)
-                .stream()
-                .map(minecraftServerMapper::toInfo)
-                .toList();
+        final var profileFavoriteServers = minecraftServerService.getFavorite(profileId);
 
         return new UserInfo(profile, profilePlayers, profileFavoriteServers);
     }
@@ -154,8 +152,8 @@ public class ProfileService {
         minecraftServerService.addFavorite(serverId, profileId);
     }
 
-    /// Связанные MC-игроки профиля (uuid/имя/голова скина/флаг оператора) — источник ролей
-    /// MINECRAFT_PLAYER/MINECRAFT_OPERATOR и данных об игроках для веб-приложения. У ещё не
+    /// Связанные MC-игроки профиля (uuid/имя/голова скина/флаг оператора) — данные об игроках
+    /// для веб-приложения. У ещё не
     /// созданного профиля ({@code id == null}, путь регистрации) связей нет — пустой список.
     private List<MinecraftPlayer> loadLinkedPlayers(Long profileId) {
         if (profileId == null) {
@@ -164,24 +162,13 @@ public class ProfileService {
         return minecraftPlayerService.findLinkedByProfileId(profileId);
     }
 
-    /// Собирает authority профиля (source=AAD): роли и targets (≡ aud).
-    /// Роли: всегда {@code USER}; есть связанный игрок ⇒ {@code +MINECRAFT_PLAYER}; есть оператор
-    /// хотя бы на одном сервере ⇒ {@code +MINECRAFT_OPERATOR}; плюс выданные вручную ({@code profile_role},
-    /// например {@code ADMIN}).
-    /// Targets: всегда api-gateway (профиль ходит в BFF) + зоны серверов, где состоят его игроки
-    /// (членство minecraft_server_player; MC валидирует токен профиля напрямую).
+    /// Собирает authority профиля (source=AAD). Роли только системные: всегда {@code USER} плюс выданные
+    /// вручную ({@code profile_role}, например {@code ADMIN}). Игровые роли в токен профиля не попадают:
+    /// права на конкретном сервере выводятся отдельно и едут в токене доступа к плагину. Аудитория —
+    /// только api-gateway: токен профиля не уходит ни в один плагин.
     private void applyAuthority(ApplicationClientPrincipal principal) {
-        final var players = principal.getPlayers();
-
         final var roles = new ArrayList<Authority.Role>();
         roles.add(Authority.Role.USER);
-        if (!players.isEmpty()) {
-            roles.add(Authority.Role.MINECRAFT_PLAYER);
-            if (players.stream().anyMatch(player -> Boolean.TRUE.equals(player.isOperator()))) {
-                roles.add(Authority.Role.MINECRAFT_OPERATOR);
-            }
-        }
-
         if (principal.getId() != null) {
             profileRepository.findGrantedRoleCodes(principal.getId()).stream()
                     .map(Authority.Role::of)
@@ -189,17 +176,9 @@ public class ProfileService {
                     .forEach(roles::add);
         }
 
-        final var targets = new ArrayList<String>();
-        targets.add(apiGateway);
-        if (principal.getId() != null) {
-            minecraftPlayerService.findServerIdsByProfileId(principal.getId()).stream()
-                    .map(MinecraftServerTargets::of)
-                    .forEach(targets::add);
-        }
-
         principal.setAuthority(Authority.as(roles.toArray(new Authority.Role[0]))
                 .from(Authority.Source.APPLICATION_AUTHORIZED_DEVICE)
-                .to(targets)
+                .to(apiGateway)
                 .grant());
     }
 

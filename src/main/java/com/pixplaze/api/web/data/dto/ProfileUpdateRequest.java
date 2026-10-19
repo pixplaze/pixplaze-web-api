@@ -17,5 +17,7 @@ public record ProfileUpdateRequest(
         @Size(min = 8, max = 255, message = "Длина пароля должна быть от 8 до 255 символов")
         String password,
         @Schema(description = "Текущий пароль; обязателен, если меняется пароль")
-        String currentPassword
+        String currentPassword,
+        @Schema(description = "Скрывать мой онлайн: друзья не видят, что мои игроки в сети")
+        Boolean isOnlineHidden
 ) {}

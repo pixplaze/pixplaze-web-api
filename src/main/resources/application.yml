@@ -32,7 +32,9 @@ app:
         verification-uri: ${app.url.app.gateway}/auth
       token:
         access:
-          expiration-minutes: 2400
+          expiration-minutes: 15
+          plugin-expiration-minutes: 5
+          system-expiration-minutes: 1
           kid: k1
           private-key: ${EC_PRIVATE_KEY}
           public-key: ${EC_PUBLIC_KEY}

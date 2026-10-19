@@ -60,6 +60,9 @@ services:
       # Настройки переменных среды с ES256-ключами для подписи токенов
       EC_PRIVATE_KEY: ${EC_PRIVATE_KEY}
       EC_PUBLIC_KEY: ${EC_PUBLIC_KEY}
+    volumes:
+      # Логи log4j (LOG_DIR=logs → /app/logs): без монтирования пользователь app не может создать каталог в /app
+      - ./logs:/app/logs
 
 volumes:
   pixplaze_db_data:

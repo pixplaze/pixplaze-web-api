@@ -21,6 +21,7 @@ import io.jsonwebtoken.io.DecodingException;
 import io.jsonwebtoken.security.SignatureException;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -43,6 +44,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
  * диктуется стандартом (RFC 8628/6749) — {@code {"error": ...}}. Security-путь форматируется тем же
  * {@link ExceptionHandlerService} через хуки в {@code SecurityConfiguration}/{@code JwtAuthenticationFilter}.
  */
+@Slf4j
 @RestControllerAdvice
 @RequiredArgsConstructor
 public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
@@ -57,12 +59,14 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     /// Ловит и доменный {@code InvalidRefreshTokenException} (наследник).
     @ExceptionHandler(UnauthorizedException.class)
     public ResponseEntity<ErrorResponse> unauthorized(UnauthorizedException e, HttpServletRequest request) {
+        logRejection(HttpStatus.UNAUTHORIZED, e, request);
         return respond(HttpStatus.UNAUTHORIZED, e, request);
     }
 
     /// Ловит доменные {@code VoucherCodeValidationException}/{@code InvalidInviteCodeException} (наследники).
     @ExceptionHandler(ForbiddenException.class)
     public ResponseEntity<ErrorResponse> forbidden(ForbiddenException e, HttpServletRequest request) {
+        logRejection(HttpStatus.FORBIDDEN, e, request);
         return respond(HttpStatus.FORBIDDEN, e, request);
     }
 
@@ -73,6 +77,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(ConflictException.class)
     public ResponseEntity<ErrorResponse> conflict(ConflictException e, HttpServletRequest request) {
+        logRejection(HttpStatus.CONFLICT, e, request);
         return respond(HttpStatus.CONFLICT, e, request);
     }
 
@@ -97,18 +102,25 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
             BadCredentialsException.class
     })
     public ResponseEntity<ErrorResponse> invalidToken(Exception e, HttpServletRequest request) {
+        logRejection(HttpStatus.UNAUTHORIZED, e, request);
         return respond(HttpStatus.UNAUTHORIZED, e, request);
     }
 
     /// Токен валиден, но claim'ы не подходят под операцию → 403.
     @ExceptionHandler({IncorrectClaimException.class, MissingClaimException.class})
     public ResponseEntity<ErrorResponse> invalidClaims(Exception e, HttpServletRequest request) {
+        logRejection(HttpStatus.FORBIDDEN, e, request);
         return respond(HttpStatus.FORBIDDEN, e, request);
     }
 
     /// OAuth token/authorize endpoint: формат тела диктуется стандартом (не {@link ErrorResponse}).
     @ExceptionHandler(DeviceAuthorizationException.class)
-    public ResponseEntity<OAuthErrorResponse> deviceAuthorization(DeviceAuthorizationException e) {
+    public ResponseEntity<OAuthErrorResponse> deviceAuthorization(DeviceAuthorizationException e, HttpServletRequest request) {
+        // authorization_pending и slow_down — штатный ход опроса, не отказ: не засоряем ими лог
+        if (e.getError() != OAuthError.AUTHORIZATION_PENDING && e.getError() != OAuthError.SLOW_DOWN) {
+            log.debug("Device authorization rejected with {}: {} [{} {}]",
+                    e.getError().code(), e.describe(), request.getMethod(), request.getRequestURI());
+        }
         final var status = e.getError() == OAuthError.SERVER_ERROR
                 ? HttpStatus.INTERNAL_SERVER_ERROR
                 : HttpStatus.BAD_REQUEST;
@@ -134,6 +146,12 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         final var errorResponse = exceptionHandlerService.handleException(
                 ex, HttpStatus.valueOf(statusCode.value()), servletRequest(request));
         return new ResponseEntity<>(errorResponse, headers, statusCode);
+    }
+
+    /// Причина отказа в доступе — в лог (DEBUG): клиенту уходит общий ответ, а разбираться нужно по причине.
+    private static void logRejection(HttpStatus status, Exception e, HttpServletRequest request) {
+        log.debug("Request rejected with {}: {}: {} [{} {}]", status.value(), e.getClass().getSimpleName(), e.getMessage(),
+                request.getMethod(), request.getRequestURI());
     }
 
     private ResponseEntity<ErrorResponse> respond(HttpStatus status, Exception e, HttpServletRequest request) {

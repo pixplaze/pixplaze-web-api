@@ -28,6 +28,9 @@ public class InMemoryMinecraftServerSnapshotStore implements MinecraftServerSnap
 
     private final Map<Long, MinecraftServerListing> byId = new ConcurrentHashMap<>();
     private volatile List<MinecraftServerListing> published = List.of();
+    /// Набор из БД получен ({@link #replaceAll}); готовность наступает с его публикацией.
+    private volatile boolean synced;
+    private volatile boolean ready;
 
     @Override
     public Optional<MinecraftServerListing> find(long serverId) {
@@ -47,6 +50,7 @@ public class InMemoryMinecraftServerSnapshotStore implements MinecraftServerSnap
             byId.merge(base.id(), base, MinecraftServerListing::syncedWith);
         }
         byId.keySet().removeIf(id -> !keep.contains(id));
+        synced = true;
     }
 
     @Override
@@ -87,5 +91,11 @@ public class InMemoryMinecraftServerSnapshotStore implements MinecraftServerSnap
         published = byId.values().stream()
                 .sorted(Comparator.comparingLong(MinecraftServerListing::id))
                 .toList();
+        ready = synced;
+    }
+
+    @Override
+    public boolean isReady() {
+        return ready;
     }
 }
