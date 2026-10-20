@@ -53,88 +53,49 @@ public class ProfileController {
         return profileService.getProfiles(limit, offset);
     }
 
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("isAuthenticated() AND @profileSecurity.canView(clientPrincipal, #profileId)")
     @GetMapping("/{profileId}/friends")
     public List<Profile> getFriendsProfiles(
         @PathVariable Long profileId,
         @AuthenticationPrincipal ApplicationClientPrincipal clientPrincipal
     ) {
-        if (profileId == null) {
-            throw new IllegalArgumentException("Profile id must be specified!");
-        }
-
-        if (!canView(clientPrincipal, profileId)) {
-            throw new AccessDeniedException("Profile isn't accessible!");
-        }
-
         return profileFriendService.findFriendsProfiles(profileId);
     }
 
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("isAuthenticated() AND @profileSecurity.canView(clientPrincipal, #profileId)")
     @GetMapping("/{profileId}/friends/requests/incoming")
     public List<ProfileFriend> getFriendsProfilesRequestsIncoming(
         @PathVariable Long profileId,
         @AuthenticationPrincipal ApplicationClientPrincipal clientPrincipal
     ) {
-        if (profileId == null) {
-            throw new IllegalArgumentException("Profile id must be specified!");
-        }
-
-        if (!canView(clientPrincipal, profileId)) {
-            throw new AccessDeniedException("Profile isn't accessible!");
-        }
-
         return profileFriendService.findFriendsProfilesRequestsIncoming(profileId);
     }
 
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("isAuthenticated() AND @profileSecurity.canView(clientPrincipal, #profileId)")
     @GetMapping("/{profileId}/friends/requests/outgoing")
     public List<ProfileFriend> getFriendsProfilesRequestsOutgoing(
         @PathVariable Long profileId,
         @AuthenticationPrincipal ApplicationClientPrincipal clientPrincipal
     ) {
-        if (profileId == null) {
-            throw new IllegalArgumentException("Profile id must be specified!");
-        }
-
-        if (!canView(clientPrincipal, profileId)) {
-            throw new AccessDeniedException("Profile isn't accessible!");
-        }
-
         return profileFriendService.findFriendsProfilesRequestsOutgoing(profileId);
     }
 
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("isAuthenticated() AND !@profileSecurity.isTheSameUser(clientPrincipal, #profileId")
     @PutMapping("/me/friends/{friendId}")
     public ProfileFriend addFriend(
         @PathVariable Long friendId,
         @AuthenticationPrincipal ApplicationClientPrincipal clientPrincipal
     ) {
-        if (friendId == null) {
-            throw new IllegalArgumentException("Profile id must be specified!");
-        }
-
-        if (clientPrincipal.getId().equals(friendId)) {
-            throw new BadRequestException("Profile cannot be a friend of itself!");
-        }
-
         return profileFriendService.add(clientPrincipal.getId(), friendId);
     }
 
+    @PreAuthorize("isAuthenticated()")
     @DeleteMapping("/me/friends/{friendId}")
     public void removeFriend(
         @PathVariable Long friendId,
         @AuthenticationPrincipal ApplicationClientPrincipal clientPrincipal
     ) {
-        if (friendId == null) {
-            throw new IllegalArgumentException("Profile id must be specified!");
-        }
-
         profileFriendService.remove(clientPrincipal.getId(), friendId);
     }
 
-    private static boolean canView(ApplicationClientPrincipal clientPrincipal, Long profileId) {
-        return clientPrincipal.getAuthority().is(Authority.Role.ADMIN) ||
-            clientPrincipal.getId().equals(profileId);
-    }
 }

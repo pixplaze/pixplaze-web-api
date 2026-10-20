@@ -4,7 +4,6 @@ import com.pixplaze.api.web.data.db.tables.pojos.Profile;
 import com.pixplaze.api.web.data.db.tables.pojos.ProfileFriend;
 import com.pixplaze.api.web.repository.ProfileFriendRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -14,10 +13,6 @@ import java.util.List;
 public class ProfileFriendService {
 
   private final ProfileFriendRepository profileFriendRepository;
-
-  @Value("${app.url.api.gateway}")
-  private String apiGateway;
-
 
   public List<Profile> findFriendsProfiles(Long id) {
     return profileFriendRepository.findFriendsProfiles(id);
