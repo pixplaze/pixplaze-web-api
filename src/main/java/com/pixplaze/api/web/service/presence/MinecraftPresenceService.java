@@ -4,6 +4,7 @@ import com.pixplaze.api.ext.data.player.MinecraftPlayerInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerHeartbeatInfo;
 import com.pixplaze.api.web.repository.MinecraftPlayerRepository;
 import com.pixplaze.api.web.repository.MinecraftServerRepository;
+import com.pixplaze.api.web.util.SkinHeads;
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -16,13 +17,12 @@ import java.util.List;
  * рассинхронизация чинится следующим heartbeat.
  *
  * <p>Онлайн живёт в {@link MinecraftPresenceStore}. В БД уходят только редкие изменения: флаг оператора
- * участников сервера и ник известных игроков (когда игрок в снимке новый или изменился) и время выхода
+ * участников сервера, ник и голова скина известных игроков (когда игрок в снимке новый или изменился) и время выхода
  * привязанных игроков ({@code last_seen_at}: пропал из снимка или замолчал его сервер).
  */
 @Service
 @RequiredArgsConstructor
 public class MinecraftPresenceService {
-
     private final MinecraftPresenceStore minecraftPresenceStore;
     private final MinecraftServerRepository minecraftServerRepository;
     private final MinecraftPlayerRepository minecraftPlayerRepository;
@@ -49,7 +49,7 @@ public class MinecraftPresenceService {
     private void persist(long serverId, List<MinecraftPlayerInfo> changed) {
         for (var player : changed) {
             minecraftServerRepository.updatePlayerOperator(serverId, player.uuid(), player.isOperator());
-            minecraftPlayerRepository.updateUsername(player.uuid(), player.username());
+            minecraftPlayerRepository.updateFromPresence(player.uuid(), player.username(), SkinHeads.valid(player.uuid(), player.skinHeadBase64()));
         }
     }
 }

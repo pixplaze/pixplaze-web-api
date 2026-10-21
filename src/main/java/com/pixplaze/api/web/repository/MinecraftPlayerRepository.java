@@ -40,7 +40,8 @@ public class MinecraftPlayerRepository {
     }
 
     /// Апсерт игрока: создаёт или, если игрок уже есть (по uuid), обновляет username и голову скина.
-    /// Используется на device-входе игрока — повторный вход освежает картинку.
+    /// Используется на device-входе игрока. Голова без значения хранимую не стирает: её присылает снимок
+    /// heartbeat, и повторно он её не пришлёт, пока снимок не изменится.
     public MinecraftPlayer upsert(MinecraftPlayer player) {
         return dslContext.insertInto(MINECRAFT_PLAYER)
                 .set(MINECRAFT_PLAYER.UUID, player.getUuid())
@@ -49,7 +50,7 @@ public class MinecraftPlayerRepository {
                 .onConflict(MINECRAFT_PLAYER.UUID)
                 .doUpdate()
                 .set(MINECRAFT_PLAYER.USERNAME, player.getUsername())
-                .set(MINECRAFT_PLAYER.SKIN_HEAD, player.getSkinHead())
+                .set(MINECRAFT_PLAYER.SKIN_HEAD, DSL.coalesce(DSL.excluded(MINECRAFT_PLAYER.SKIN_HEAD), MINECRAFT_PLAYER.SKIN_HEAD))
                 .returning(MINECRAFT_PLAYER.UUID, MINECRAFT_PLAYER.USERNAME, MINECRAFT_PLAYER.SKIN_HEAD, MINECRAFT_PLAYER.CREATED_AT)
                 .fetchOneInto(MinecraftPlayer.class);
     }
@@ -168,10 +169,12 @@ public class MinecraftPlayerRepository {
                 .execute();
     }
 
-    /// Ник известного игрока из снимка heartbeat. Пишется только изменение; неизвестный игрок не создаётся.
-    public void updateUsername(UUID playerUuid, String username) {
+    /// Ник и голова скина известного игрока из снимка heartbeat. Пишется только изменение; {@code null}
+    /// не стирает хранимое (голова ещё не загружена плагином); неизвестный игрок не создаётся.
+    public void updateFromPresence(UUID playerUuid, String username, String skinHead) {
         PartialUpdate.of(dslContext, MINECRAFT_PLAYER)
                 .set(MINECRAFT_PLAYER.USERNAME, username)
+                .set(MINECRAFT_PLAYER.SKIN_HEAD, skinHead)
                 .execute(MINECRAFT_PLAYER.UUID.eq(playerUuid), MinecraftPlayer.class);
     }
 
@@ -218,7 +221,7 @@ public class MinecraftPlayerRepository {
     /// ДРУГОМУ профилю, и связь не изменена.
     public boolean linkProfile(UUID playerUuid, Long profileId) {
         Objects.requireNonNull(playerUuid, "'playerUuid' must not be null!");
-        Objects.requireNonNull(profileId, "'profileId' must not be null!");
+        Objects.requireNonNull(profileId, "'id' must not be null!");
 
         final var ownerProfileId = dslContext.insertInto(MINECRAFT_PLAYER_PROFILE)
                 .set(MINECRAFT_PLAYER_PROFILE.PROFILE_ID, profileId)

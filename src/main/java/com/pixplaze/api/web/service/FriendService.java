@@ -13,8 +13,8 @@ import com.pixplaze.api.web.service.presence.MinecraftPresenceStore.PlayerPresen
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -74,37 +74,43 @@ public class FriendService {
         profileIds.add(profileId);
         profileIds.addAll(profileFriendRepository.findMutualIds(profileId));
 
-        final var rowsByProfile = new LinkedHashMap<Long, List<ProfilePlayerRow>>();
-        profileFriendRepository.findProfilePlayers(profileIds)
-                .forEach(row -> rowsByProfile.computeIfAbsent(row.profileId(), id -> new ArrayList<>()).add(row));
-
-        final var presences = new LinkedHashMap<Long, List<PlayerPresence>>();
-        rowsByProfile.forEach((id, rows) -> presences.put(id, visiblePresences(rows, id.equals(profileId))));
-        final var servers = serversOf(presences.values());
-
-        final var result = new ArrayList<FriendOnlineInfo>();
-        rowsByProfile.forEach((id, rows) -> result.add(toOnlineInfo(rows, presences.get(id), servers, id.equals(profileId))));
-        return result;
+        final var profiles = profileFriendRepository.findProfilePlayers(profileIds).stream()
+                .collect(Collectors.groupingBy(ProfilePlayerRow::id, LinkedHashMap::new, Collectors.toList()))
+                .values().stream()
+                .map(rows -> onlineProfile(rows, rows.get(0).id().equals(profileId)))
+                .toList();
+        final var servers = serversOf(profiles);
+        return profiles.stream()
+                .map(profile -> profile.toInfo(servers))
+                .toList();
     }
 
-    /// Игроки профиля в сети, которых видно смотрящему: себе — все, другу — кроме ванишей; «скрывать онлайн» — никого.
-    private List<PlayerPresence> visiblePresences(List<ProfilePlayerRow> rows, boolean isSelf) {
-        if (rows.get(0).isOnlineHidden() && !isSelf) {
-            return List.of();
+    /// Что смотрящему видно из онлайна профиля: себе — все игроки, другу — кроме ванишей;
+    /// «скрывать онлайн» — ни игроков, ни времени выхода.
+    private OnlineProfile onlineProfile(List<ProfilePlayerRow> rows, boolean isSelf) {
+        final var first = rows.get(0);
+        if (first.isOnlineHidden() && !isSelf) {
+            return new OnlineProfile(first.id(), first.name(), null, List.of());
         }
-        return rows.stream()
+        final var lastSeenAt = rows.stream()
+                .map(ProfilePlayerRow::lastSeenAt)
+                .filter(Objects::nonNull)
+                .max(Comparator.naturalOrder())
+                .orElse(null);
+        final var presences = rows.stream()
                 .map(ProfilePlayerRow::playerUuid)
                 .filter(Objects::nonNull)
                 .map(minecraftPresenceStore::find)
                 .flatMap(Optional::stream)
                 .filter(presence -> isSelf || !Boolean.TRUE.equals(presence.player().isHidden()))
                 .toList();
+        return new OnlineProfile(first.id(), first.name(), lastSeenAt, presences);
     }
 
     /// Серверы, на которых сейчас игроки, — одним чтением снапшота, кратко: id, название и адреса.
-    private Map<Long, MinecraftServerInfo> serversOf(Collection<List<PlayerPresence>> presences) {
-        final var ids = presences.stream()
-                .flatMap(List::stream)
+    private Map<Long, MinecraftServerInfo> serversOf(List<OnlineProfile> profiles) {
+        final var ids = profiles.stream()
+                .flatMap(profile -> profile.presences().stream())
                 .map(PlayerPresence::minecraftServerId)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
         if (ids.isEmpty()) {
@@ -116,23 +122,19 @@ public class FriendService {
         return servers;
     }
 
-    private FriendOnlineInfo toOnlineInfo(List<ProfilePlayerRow> rows, List<PlayerPresence> presences,
-                                          Map<Long, MinecraftServerInfo> servers, boolean isSelf) {
-        final var first = rows.get(0);
-        if (first.isOnlineHidden() && !isSelf) {
-            return new FriendOnlineInfo(first.profileId(), first.profileName(), List.of(), null);
-        }
+    /// Онлайн профиля, уже отфильтрованный для смотрящего ([#onlineProfile]); живёт один вызов [#findOnline].
+    private record OnlineProfile(Long profileId, String name, OffsetDateTime lastSeenAt, List<PlayerPresence> presences) {
 
-        final var lastSeenAt = rows.stream()
-                .map(ProfilePlayerRow::lastSeenAt)
-                .filter(Objects::nonNull)
-                .max(Comparator.naturalOrder())
-                .orElse(null);
-        final var players = presences.stream()
-                .map(presence -> new FriendOnlineInfo.Player(presence.player().uuid(), presence.player().username(),
-                        servers.getOrDefault(presence.minecraftServerId(),
-                                MinecraftServerInfo.brief(presence.minecraftServerId(), null, List.of()))))
-                .toList();
-        return new FriendOnlineInfo(first.profileId(), first.profileName(), players, lastSeenAt);
+        /// Сервер, которого нет в `servers` (web-api его ещё не знает), — только с id.
+        FriendOnlineInfo toInfo(Map<Long, MinecraftServerInfo> servers) {
+            final var players = presences.stream()
+                    .map(presence -> new FriendOnlineInfo.Player(
+                            presence.player().uuid(),
+                            presence.player().username(),
+                            servers.getOrDefault(presence.minecraftServerId(),
+                                    MinecraftServerInfo.brief(presence.minecraftServerId(), null, List.of()))))
+                    .toList();
+            return new FriendOnlineInfo(profileId, name, players, lastSeenAt);
+        }
     }
 }

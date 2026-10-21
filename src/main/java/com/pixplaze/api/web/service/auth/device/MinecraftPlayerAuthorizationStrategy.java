@@ -15,7 +15,9 @@ import com.pixplaze.api.web.service.MinecraftPlayerService;
 import com.pixplaze.api.web.service.MinecraftServerService;
 import com.pixplaze.api.web.service.auth.MinecraftPlayerAccessTokenService;
 import com.pixplaze.api.web.service.auth.RefreshTokenService;
+import com.pixplaze.api.web.service.presence.MinecraftPresenceStore;
 import com.pixplaze.api.web.util.AddressUtils;
+import com.pixplaze.api.web.util.SkinHeads;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
@@ -37,6 +39,7 @@ public class MinecraftPlayerAuthorizationStrategy implements DeviceAuthorization
     private final MinecraftServerService minecraftServerService;
     private final MinecraftPlayerMapper minecraftPlayerMapper;
     private final JsonMapper jsonMapper;
+    private final MinecraftPresenceStore minecraftPresenceStore;
 
     @Value("${app.url.api.gateway}")
     private String apiGateway;
@@ -114,7 +117,15 @@ public class MinecraftPlayerAuthorizationStrategy implements DeviceAuthorization
                 .orElseThrow(() -> exceptionAccessDenied("server #%d does not exist or is banned".formatted(details.minecraftServerId())));
 
         try {
-            minecraftPlayerService.upsert(minecraftPlayerMapper.toEntity(details));
+            final var player = minecraftPlayerMapper.toEntity(details);
+            // Голову присылает снимок heartbeat; новый игрок попадает в БД только здесь, и снимок с его
+            // головой уже пришёл раньше (повторно — только при изменении), поэтому берём её из онлайна
+            if (player.getSkinHead() == null) {
+                minecraftPresenceStore.find(details.uuid())
+                        .map(presence -> SkinHeads.valid(details.uuid(), presence.player().skinHeadBase64()))
+                        .ifPresent(player::setSkinHead);
+            }
+            minecraftPlayerService.upsert(player);
             minecraftPlayerService.linkProfile(details.uuid(), approver.getId());
 
             // Фиксируем членство игрока на сервере: из него выводятся игровые права профиля на сервере.

@@ -2,6 +2,7 @@ package com.pixplaze.api.web.repository;
 
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
+import org.jooq.Records;
 import org.springframework.stereotype.Repository;
 
 import java.time.OffsetDateTime;
@@ -18,7 +19,7 @@ public class ProfileFriendRepository {
 
     private final DSLContext dslContext;
 
-    /// Добавляет строку «profileId добавил friendProfileId»; повтор — без изменений.
+    /// Добавляет строку «id добавил friendProfileId»; повтор — без изменений.
     public void add(Long profileId, Long friendProfileId) {
         dslContext.insertInto(PROFILE_FRIEND)
                 .set(PROFILE_FRIEND.PROFILE_ID, profileId)
@@ -42,7 +43,7 @@ public class ProfileFriendRepository {
                 .join(PROFILE).on(PROFILE.ID.eq(PROFILE_FRIEND.FRIEND_PROFILE_ID))
                 .where(PROFILE_FRIEND.PROFILE_ID.eq(profileId))
                 .orderBy(PROFILE.NAME)
-                .fetch(record -> new ProfileRef(record.value1(), record.value2()));
+                .fetch(Records.mapping(ProfileRef::new));
     }
 
     /// Кто добавил профиль.
@@ -52,7 +53,7 @@ public class ProfileFriendRepository {
                 .join(PROFILE).on(PROFILE.ID.eq(PROFILE_FRIEND.PROFILE_ID))
                 .where(PROFILE_FRIEND.FRIEND_PROFILE_ID.eq(profileId))
                 .orderBy(PROFILE.NAME)
-                .fetch(record -> new ProfileRef(record.value1(), record.value2()));
+                .fetch(Records.mapping(ProfileRef::new));
     }
 
     /// Взаимные друзья: есть и строка профиля, и встречная.
@@ -69,21 +70,30 @@ public class ProfileFriendRepository {
     /// Профили вместе с их привязанными игроками: по строке на игрока, у профиля без игроков — одна
     /// строка с пустым игроком.
     public List<ProfilePlayerRow> findProfilePlayers(Collection<Long> profileIds) {
-        return dslContext.select(PROFILE.ID, PROFILE.NAME, PROFILE.IS_ONLINE_HIDDEN,
-                        MINECRAFT_PLAYER.UUID, MINECRAFT_PLAYER.USERNAME, MINECRAFT_PLAYER.LAST_SEEN_AT)
+        return dslContext.select(
+                        PROFILE.ID,
+                        PROFILE.NAME,
+                        PROFILE.IS_ONLINE_HIDDEN,
+                        MINECRAFT_PLAYER.UUID,
+                        MINECRAFT_PLAYER.USERNAME,
+                        MINECRAFT_PLAYER.LAST_SEEN_AT
+                )
                 .from(PROFILE)
                 .leftJoin(MINECRAFT_PLAYER_PROFILE).on(MINECRAFT_PLAYER_PROFILE.PROFILE_ID.eq(PROFILE.ID))
                 .leftJoin(MINECRAFT_PLAYER).on(MINECRAFT_PLAYER.UUID.eq(MINECRAFT_PLAYER_PROFILE.MINECRAFT_PLAYER_UUID))
                 .where(PROFILE.ID.in(profileIds))
                 .orderBy(PROFILE.NAME, MINECRAFT_PLAYER.USERNAME)
-                .fetch(record -> new ProfilePlayerRow(record.value1(), record.value2(), Boolean.TRUE.equals(record.value3()),
-                        record.value4(), record.value5(), record.value6()));
+                .fetch(Records.mapping(ProfilePlayerRow::new));
     }
 
-    public record ProfileRef(Long id, String name) {
-    }
+    public record ProfileRef(Long id, String name) {}
 
-    public record ProfilePlayerRow(Long profileId, String profileName, boolean isOnlineHidden,
-                                   UUID playerUuid, String username, OffsetDateTime lastSeenAt) {
-    }
+    public record ProfilePlayerRow(
+            Long id,
+            String name,
+            boolean isOnlineHidden,
+            UUID playerUuid,
+            String username,
+            OffsetDateTime lastSeenAt
+    ) {}
 }
