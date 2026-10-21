@@ -57,8 +57,8 @@ public class MinecraftServerMonitoringService {
             writeStatusRequest(buffer);
             writePacket(out, buffer);
             final var json = readStatusResponse(in);
+            log.debug("Parsed Minecraft data: \"{}...\"", json.substring(0, 32));
             buffer.clear();
-            log.debug("Parsed Minecraft data: \"{}\"...", json.substring(0, 32));
             writePing(buffer);
             writePacket(out, buffer);
             final var ping = readPingResponse(in);

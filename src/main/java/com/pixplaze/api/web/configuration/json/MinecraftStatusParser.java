@@ -3,9 +3,13 @@ package com.pixplaze.api.web.configuration.json;
 import com.pixplaze.api.ext.data.server.MinecraftServerCoreInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
 import com.pixplaze.api.web.service.server.MinecraftServerStates;
+import org.jspecify.annotations.NonNull;
 import tools.jackson.databind.JsonNode;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.IntStream;
 
@@ -61,25 +65,49 @@ public final class MinecraftStatusParser {
         }
 
         final var versionString = root.get("version").get("name").asString();
-        final var matcher = VERSION_PATTERN.matcher(versionString);
-        if (!matcher.matches()) {
-            return new MinecraftServerCoreInfo(versionString, null);
-        }
+        String coreVersion = getVersionRange(versionString);
+        String coreName = getVersionName(versionString);
+        return new MinecraftServerCoreInfo(coreName, coreVersion);
+    }
 
-        final var coreVersions = IntStream.rangeClosed(2, matcher.groupCount())
-                .mapToObj(matcher::group)
+    private static String getVersionName(String versionString) {
+        int versionPrefixIndex = versionString.indexOf(" " + 1);
+        if (versionPrefixIndex == -1) {
+            return "N/A";
+        }
+        return versionString.substring(versionPrefixIndex);
+    }
+
+    private static String getVersionRange(String string) {
+        Pattern pattern = Pattern.compile("([\\dxX.]+)[-\\s/,]?");
+        string = string.trim().substring(string.indexOf(" ") + 1);
+        Matcher matcher = pattern.matcher(string);
+        List<String> versions = parseVersionRange(matcher);
+        return joinVersionRange(versions);
+    }
+
+    private static @NonNull List<String> parseVersionRange(Matcher matcher) {
+        return matcher.results()
+                .map(matchResult -> matchResult.group(1))
                 .filter(Objects::nonNull)
                 .map(String::trim)
-                .map(version -> version.replaceAll("\\.[xX]", ""))
+                .map(MinecraftStatusParser::removeVersionWildcard)
                 .toList();
+    }
 
-        var coreVersion = versionString;
-        if (coreVersions.size() > 2) {
-            coreVersion = String.join(", ", coreVersions);
-        } else if (!coreVersions.isEmpty()) {
-            coreVersion = String.join(" - ", coreVersions);
+    private static String joinVersionRange(List<String> versionRanges) {
+        if (versionRanges.size() > 2) {
+            return String.join(", ", versionRanges);
         }
 
-        return new MinecraftServerCoreInfo(matcher.group(1), coreVersion);
+        if (!versionRanges.isEmpty()) {
+            return String.join(" - ", versionRanges);
+        }
+
+        return "N/A";
+    }
+
+    private static @NonNull String removeVersionWildcard(String s) {
+        return s.replaceAll("\\.[xX]", "");
     }
 }
