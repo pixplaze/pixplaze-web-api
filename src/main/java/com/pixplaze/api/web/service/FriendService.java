@@ -2,10 +2,14 @@ package com.pixplaze.api.web.service;
 
 import com.pixplaze.api.web.data.dto.FriendInfo;
 import com.pixplaze.api.web.data.dto.FriendOnlineInfo;
+import com.pixplaze.api.web.data.dto.FriendSearchInfo;
 import com.pixplaze.api.web.exception.http.BadRequestException;
 import com.pixplaze.api.web.exception.http.NotFoundException;
 import com.pixplaze.api.web.repository.ProfileFriendRepository;
 import com.pixplaze.api.web.repository.ProfileFriendRepository.ProfilePlayerRow;
+import com.pixplaze.api.web.repository.ProfileFriendRepository.ProfileRef;
+import com.pixplaze.api.web.repository.ProfilePlayerRepository;
+import com.pixplaze.api.web.repository.ProfilePlayerRepository.PlayerHead;
 import com.pixplaze.api.web.repository.ProfileRepository;
 import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
 import com.pixplaze.api.web.service.presence.MinecraftPresenceStore;
@@ -39,6 +43,11 @@ public class FriendService {
     private final ProfileRepository profileRepository;
     private final MinecraftPresenceStore minecraftPresenceStore;
     private final MinecraftServerService minecraftServerService;
+    private final ProfilePlayerRepository profilePlayerRepository;
+
+    /// Короче — слишком много совпадений, поиск превращается в перебор профилей.
+    static final int SEARCH_MIN_LENGTH = 2;
+    static final int SEARCH_LIMIT = 20;
 
     /// Друзья со статусом: взаимные, исходящие (профиль добавил) и входящие (профиль добавили).
     public List<FriendInfo> findFriends(Long profileId) {
@@ -66,6 +75,38 @@ public class FriendService {
     /// Убирает друга со своей стороны; его строка («он добавил меня») остаётся.
     public void remove(Long profileId, Long friendProfileId) {
         profileFriendRepository.remove(profileId, friendProfileId);
+    }
+
+    /// Профили, чьё имя или ник привязанного игрока начинается с `query` (без учёта регистра), кроме самого
+    /// профиля: не больше [#SEARCH_LIMIT], по имени, с головой скина и отношением к искавшему.
+    public List<FriendSearchInfo> search(Long profileId, String query) {
+        final var trimmed = query == null ? "" : query.strip();
+        if (trimmed.length() < SEARCH_MIN_LENGTH) {
+            throw new BadRequestException("Search query must be at least %d characters".formatted(SEARCH_MIN_LENGTH));
+        }
+        final var found = profileRepository.search(trimmed, profileId, SEARCH_LIMIT);
+        if (found.isEmpty()) {
+            return List.of();
+        }
+        final var statuses = findFriends(profileId).stream()
+                .collect(Collectors.toMap(FriendInfo::profileId, FriendInfo::status));
+        final var heads = profilePlayerRepository.findHeads(found.stream().map(ProfileRef::id).toList()).stream()
+                .collect(Collectors.groupingBy(PlayerHead::profileId));
+        return found.stream()
+                .map(profile -> new FriendSearchInfo(profile.id(), profile.name(),
+                        headOf(heads.getOrDefault(profile.id(), List.of()), trimmed),
+                        statuses.getOrDefault(profile.id(), FriendInfo.Status.NONE)))
+                .toList();
+    }
+
+    /// Голова игрока, чей ник начинается с запроса, иначе первого по нику; `heads` — по нику, только с головой.
+    static String headOf(List<PlayerHead> heads, String query) {
+        return heads.stream()
+                .filter(head -> head.username().regionMatches(true, 0, query, 0, query.length()))
+                .findFirst()
+                .or(() -> heads.stream().findFirst())
+                .map(PlayerHead::skinHead)
+                .orElse(null);
     }
 
     /// Онлайн самого профиля и всех взаимных друзей: игроки в сети с сервером и время выхода.

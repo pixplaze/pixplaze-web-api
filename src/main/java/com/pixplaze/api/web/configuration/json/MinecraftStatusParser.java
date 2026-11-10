@@ -6,12 +6,10 @@ import com.pixplaze.api.web.service.server.MinecraftServerStates;
 import org.jspecify.annotations.NonNull;
 import tools.jackson.databind.JsonNode;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.IntStream;
 
 /**
  * Разбор ответа status протокола Minecraft (то, что видно во встроенном списке серверов) в описание
@@ -21,7 +19,7 @@ import java.util.stream.IntStream;
  */
 public final class MinecraftStatusParser {
 
-    private static final Pattern VERSION_PATTERN = Pattern.compile("^([A-Za-z\\s]+?)\\s*([0-9]+(?:\\.[0-9xX]+)+)(?:\\s*[\\-/]\\s*([0-9x]+(?:\\.[0-9xX]+)+))?");
+    private static final Pattern VERSION_PATTERN = Pattern.compile("([\\dxX.]+)[-\\s/,]?");
 
     private MinecraftStatusParser() {
     }
@@ -79,9 +77,8 @@ public final class MinecraftStatusParser {
     }
 
     private static String getVersionRange(String string) {
-        Pattern pattern = Pattern.compile("([\\dxX.]+)[-\\s/,]?");
         string = string.trim().substring(string.indexOf(" ") + 1);
-        Matcher matcher = pattern.matcher(string);
+        Matcher matcher = VERSION_PATTERN.matcher(string);
         List<String> versions = parseVersionRange(matcher);
         return joinVersionRange(versions);
     }

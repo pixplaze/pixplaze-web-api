@@ -3,6 +3,7 @@ package com.pixplaze.api.web.controller;
 import com.pixplaze.api.web.data.dto.FriendAddRequest;
 import com.pixplaze.api.web.data.dto.FriendInfo;
 import com.pixplaze.api.web.data.dto.FriendOnlineInfo;
+import com.pixplaze.api.web.data.dto.FriendSearchInfo;
 import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
 import com.pixplaze.api.web.service.FriendService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -30,6 +31,15 @@ public class FriendController {
     @GetMapping
     public List<FriendInfo> getFriends(@AuthenticationPrincipal ApplicationClientPrincipal principal) {
         return friendService.findFriends(principal.getId());
+    }
+
+    @Operation(summary = "Поиск профилей по началу имени профиля или ника игрока: от 2 символов, до 20 результатов")
+    @GetMapping("/search")
+    public List<FriendSearchInfo> search(
+            @AuthenticationPrincipal ApplicationClientPrincipal principal,
+            @RequestParam("q") String query
+    ) {
+        return friendService.search(principal.getId(), query);
     }
 
     @Operation(summary = "Добавить в друзья по имени профиля")

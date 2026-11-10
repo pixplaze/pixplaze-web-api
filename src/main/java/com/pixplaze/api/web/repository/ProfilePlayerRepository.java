@@ -3,9 +3,11 @@ package com.pixplaze.api.web.repository;
 import com.pixplaze.api.web.data.dto.ProfilePlayerInfo;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
+import org.jooq.Records;
 import org.springframework.stereotype.Repository;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.UUID;
@@ -44,6 +46,17 @@ public class ProfilePlayerRepository {
                 .toList();
     }
 
+    /// Игроки профилей, у которых есть голова скина, — по профилю и нику.
+    public List<PlayerHead> findHeads(Collection<Long> profileIds) {
+        return dslContext.select(MINECRAFT_PLAYER_PROFILE.PROFILE_ID, MINECRAFT_PLAYER.USERNAME, MINECRAFT_PLAYER.SKIN_HEAD)
+                .from(MINECRAFT_PLAYER_PROFILE)
+                .join(MINECRAFT_PLAYER).on(MINECRAFT_PLAYER.UUID.eq(MINECRAFT_PLAYER_PROFILE.MINECRAFT_PLAYER_UUID))
+                .where(MINECRAFT_PLAYER_PROFILE.PROFILE_ID.in(profileIds))
+                .and(MINECRAFT_PLAYER.SKIN_HEAD.isNotNull())
+                .orderBy(MINECRAFT_PLAYER_PROFILE.PROFILE_ID, MINECRAFT_PLAYER.USERNAME)
+                .fetch(Records.mapping(PlayerHead::new));
+    }
+
     /// Серверы, на которых состоит игрок.
     public List<Long> findServerIds(UUID playerUuid) {
         return dslContext.select(MINECRAFT_SERVER_PLAYER.MINECRAFT_SERVER_ID)
@@ -68,4 +81,7 @@ public class ProfilePlayerRepository {
                 .execute();
         return true;
     }
+
+    /// Голова скина игрока профиля: Base64 PNG без `data:`.
+    public record PlayerHead(Long profileId, String username, String skinHead) {}
 }

@@ -104,10 +104,6 @@ public class ProfileService {
                 .toList();
     }
 
-    public List<Profile> getProfiles(String username) {
-        return profileRepository.getAllByUsernameStartingWith(username);
-    }
-
     /**
      * Получение пользователя по имени пользователя
      *
