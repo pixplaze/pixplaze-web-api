@@ -2,6 +2,7 @@ package com.pixplaze.api.web.service.server;
 
 import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerStateInfo;
+import com.pixplaze.api.web.configuration.properties.MinecraftServerListingProperties;
 import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServerState;
 import com.pixplaze.api.web.data.server.ObservedState;
 import com.pixplaze.api.web.data.server.ServerHosts;
@@ -46,7 +47,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class MinecraftServerListingRefreshService {
+public class MinecraftServerListingService {
 
     private final MinecraftServerService minecraftServerService;
     private final MinecraftServerMonitoringService monitoringService;
@@ -55,6 +56,7 @@ public class MinecraftServerListingRefreshService {
     private final ExecutorService serverFetchExecutor;
     private final MinecraftServerStateRecorder stateRecorder;
     private final ThreadPoolTaskScheduler taskScheduler;
+    private final MinecraftServerListingProperties listingProperties;
 
     /// Сохранённое онлайн-состояние старше этого после рестарта не показываем: сервер мог давно упасть.
     @Value("${app.servers.warm-start.max-age:10m}")
@@ -64,14 +66,14 @@ public class MinecraftServerListingRefreshService {
     void schedule() {
         taskScheduler.scheduleWithFixedDelay(
                 this::pingTask,
-                Instant.now().plus(Duration.ofMinutes(5)),
-                Duration.ofMinutes(5)
+                Instant.now().plus(listingProperties.pingInitialDelay()),
+                listingProperties.pingInterval()
         );
 
         taskScheduler.scheduleWithFixedDelay(
                 this::syncBaseTask,
-                Instant.now().plus(Duration.ofMinutes(5)),
-                Duration.ofMinutes(1)
+                Instant.now().plus(listingProperties.syncInitialDelay()),
+                listingProperties.syncInterval()
         );
     }
 

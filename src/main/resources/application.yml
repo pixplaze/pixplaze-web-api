@@ -23,6 +23,12 @@ spring:
 app:
   url.api.gateway: ${PIXPLAZE_WEB_API_URL}
   url.app.gateway: ${PIXPLAZE_WEB_APP_URL}
+  servers:
+    listing:
+      ping-interval: 1m
+      ping-initial-delay: 10s
+      sync-interval: 5m
+      sync-initial-delay: 10s
   security:
     auth:
       device:
@@ -52,4 +58,4 @@ app:
         - OPTIONS
       allowed-headers:
         - "*"
-      allow-credentials: true
+      allow-credentials: false
