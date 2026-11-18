@@ -23,7 +23,7 @@ default_socket="/var/run/docker.sock"
 case "$(uname -s)" in
     Darwin|Linux) : ;;
     *)  echo "Unsupported OS '$(uname -s)': nothing to do (Docker Desktop on Windows works as is)" >&2
-        exit 1 ;;
+        exit 0 ;;
 esac
 
 # Socket file exists and the daemon answers on it.
