@@ -50,6 +50,8 @@ cp .env.example .env
 
 ### 1.1 Подготовить Docker
 
+> Если установлен Docker Desktop (macOS, Windows), перейти к шагу [1.2](#12-установить-pixplaze-ext-api)
+
 Сборке нужен Docker: классы jOOQ генерируются по миграциям во временном `postgres:16` (Testcontainers).
 Docker Desktop (macOS, Windows) и Docker Engine (Linux) работают без настройки. Для colima, OrbStack,
 Rancher Desktop и Docker Desktop на Linux — один раз (после перезагрузки повторить):
@@ -80,7 +82,7 @@ scripts/build-image.sh           # PLATFORM=linux/arm64 — для другой 
 Собирает jar и образ `pixplaze-web-api:<версия>` и кладёт в `target/dist` всё для переноса:
 архив образа, `version.env` (`PIXPLAZE_TAG=<версия>`) и копию `docker-compose.yml`.
 
-> Если сборка прошла успешно, этап 3 пропустите и переходите к этапу 4.
+> Если сборка прошла успешно, этап 3 пропустите и переходите к этапу [4](#4-перенос-на-удалённую-машину).
 
 ## 3. Ручная сборка
 

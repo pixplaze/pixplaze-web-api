@@ -3,10 +3,14 @@ package com.pixplaze.api.web.service.server;
 import com.pixplaze.api.ext.data.server.MinecraftServerInfo;
 import com.pixplaze.api.ext.data.server.MinecraftServerStateInfo;
 import com.pixplaze.api.web.data.db.tables.pojos.MinecraftServerState;
-import com.pixplaze.api.web.data.server.*;
+import com.pixplaze.api.web.data.server.ObservedState;
+import com.pixplaze.api.web.data.server.ServerHosts;
+import com.pixplaze.api.web.data.server.ServerPingTarget;
+import com.pixplaze.api.web.data.server.ServerRatingAggregate;
 import com.pixplaze.api.web.service.MinecraftServerMonitoringService;
 import com.pixplaze.api.web.service.MinecraftServerService;
 import com.pixplaze.api.web.service.server.model.MinecraftServerListing;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -14,6 +18,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.context.event.ApplicationStartedEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -29,8 +34,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Фоновая сборка материализованного снапшота листинга (write-side): весь сетевой I/O — здесь,
  * вне request-пути. Три независимые каденции:
  * <ul>
- *   <li>{@link #syncBase()} — синхронизирует базовый набор из БД (нечасто);</li>
- *   <li>{@link #pingTick()} — «вежливый» Tier-2 пинг: {@link MinecraftServerPingThrottle} решает, кого можно
+ *   <li>{@link #syncBaseTask()} — синхронизирует базовый набор из БД (нечасто);</li>
+ *   <li>{@link #pingTask()} — «вежливый» Tier-2 пинг: {@link MinecraftServerPingThrottle} решает, кого можно
  *       пинговать сейчас, пинги идут async через общий {@code serverFetchExecutor} (легко на
  *       виртуальные потоки), результат кладётся в стор; тик не блокируется мёртвыми серверами;</li>
  *   <li>{@link #publish()} — публикует накопленное для читателей (O(n) раз в интервал).</li>
@@ -45,14 +50,30 @@ public class MinecraftServerListingRefreshService {
 
     private final MinecraftServerService minecraftServerService;
     private final MinecraftServerMonitoringService monitoringService;
-    private final MinecraftServerSnapshotStore store;
+    private final MinecraftServerSnapshotStore minecraftServerSnapshotStore;
     private final MinecraftServerPingThrottle throttle;
     private final ExecutorService serverFetchExecutor;
     private final MinecraftServerStateRecorder stateRecorder;
+    private final ThreadPoolTaskScheduler taskScheduler;
 
     /// Сохранённое онлайн-состояние старше этого после рестарта не показываем: сервер мог давно упасть.
     @Value("${app.servers.warm-start.max-age:10m}")
     private Duration warmStartMaxAge;
+
+    @PostConstruct
+    void schedule() {
+        taskScheduler.scheduleWithFixedDelay(
+                this::pingTask,
+                Instant.now().plus(Duration.ofMinutes(5)),
+                Duration.ofMinutes(5)
+        );
+
+        taskScheduler.scheduleWithFixedDelay(
+                this::syncBaseTask,
+                Instant.now().plus(Duration.ofMinutes(5)),
+                Duration.ofMinutes(1)
+        );
+    }
 
     /// Первая синхронизация в фоне: старт приложения её не ждёт, до её публикации читатели получают 503
     /// ({@link MinecraftServerSnapshotStore#isReady}). Без базового набора листинг пуст, поэтому при ошибке
@@ -73,7 +94,7 @@ public class MinecraftServerListingRefreshService {
             fixedDelayString = "${app.servers.sync.millis:300000}",
             initialDelayString = "${app.servers.sync.millis:300000}"
     )
-    public void syncBase() {
+    public void syncBaseTask() {
         try {
             loadBase();
         } catch (Exception e) {
@@ -100,18 +121,14 @@ public class MinecraftServerListingRefreshService {
                 })
                 .toList();
         // Новые записи берут прогретую часть пинга из БД; у известных стор сохраняет собранное в памяти.
-        store.replaceAll(listed);
-        store.publish();
+        minecraftServerSnapshotStore.replaceAll(listed);
+        minecraftServerSnapshotStore.publish();
         log.debug("Server base synced: {} listed servers", listed.size());
     }
 
-    @Scheduled(
-            fixedDelayString = "${app.servers.ping-tick.millis:5000}",
-            initialDelayString = "${app.servers.ping-tick.initial-millis:10000}"
-    )
-    public void pingTick() {
+    public void pingTask() {
         // До прогрева пинговать некого
-        if (!store.isReady()) {
+        if (!minecraftServerSnapshotStore.isReady()) {
             return;
         }
         final var targets = throttle.selectDue(pingTargets());
@@ -125,13 +142,12 @@ public class MinecraftServerListingRefreshService {
         final var failed = new AtomicInteger();
 
         final var batch = targets.stream()
-                .map(target -> CompletableFuture
-                        .supplyAsync(() -> ping(target), serverFetchExecutor)
+                .map(target -> CompletableFuture.supplyAsync(() -> ping(target), serverFetchExecutor)
                         // Логирование — на уровне CF: ping пробрасывает причину, ошибку видим здесь.
                         .whenComplete((pinged, error) -> {
-                            final var previous = store.find(target.minecraftServerId()).orElse(null);
+                            final var previous = minecraftServerSnapshotStore.find(target.minecraftServerId()).orElse(null);
                             final var part = pinged != null ? pinged.state() : MinecraftServerStates.offline();
-                            store.putPing(target.minecraftServerId(), new ObservedState(
+                            minecraftServerSnapshotStore.putPing(target.minecraftServerId(), new ObservedState(
                                     MinecraftServerStateInfo.builder(part).minecraftServerId(target.minecraftServerId()).build(),
                                     Instant.now()));
                             if (pinged != null) {
@@ -166,13 +182,13 @@ public class MinecraftServerListingRefreshService {
 
     @Scheduled(fixedDelayString = "${app.servers.publish.millis:5000}")
     public void publish() {
-        store.publish();
+        minecraftServerSnapshotStore.publish();
     }
 
     /// Цели пинга — игровые адреса из опубликованного вида стора (без DB-хита каждый тик);
     /// адреса, обновлённые {@link MinecraftServerSnapshotStore#putHosts}, попадают сюда с ближайшим publish.
     private List<ServerPingTarget> pingTargets() {
-        return store.findAll().stream()
+        return minecraftServerSnapshotStore.findAll().stream()
                 .flatMap(listing -> listing.gameHost()
                         .map(host -> new ServerPingTarget(listing.id(), host.address(), host.port()))
                         .stream())
