@@ -140,14 +140,14 @@ public class ProfileFriendRepository {
         final var reverse = PROFILE_FRIEND.as("reverse");
 
         final var selectStep = dslContext.select(
-                        MINECRAFT_PLAYER_PROFILE.PROFILE_ID,
-                        MINECRAFT_PLAYER.UUID,
-                        MINECRAFT_PLAYER.USERNAME,
-                        MINECRAFT_PLAYER.IS_ONLINE_HIDDEN,
-                        MINECRAFT_PLAYER.LAST_SEEN_AT,
-                        friendshipStatus(direct, reverse).as("status"),
-                        MINECRAFT_PLAYER.SKIN_HEAD
-                );
+                MINECRAFT_PLAYER_PROFILE.PROFILE_ID,
+                MINECRAFT_PLAYER.UUID,
+                MINECRAFT_PLAYER.USERNAME,
+                MINECRAFT_PLAYER.IS_ONLINE_HIDDEN,
+                MINECRAFT_PLAYER.LAST_SEEN_AT,
+                friendshipStatus(direct, reverse).as("status"),
+                MINECRAFT_PLAYER.SKIN_HEAD
+        );
         return profileFriendJoins(selectStep, profileId, direct, reverse)
                 .where(lower(MINECRAFT_PLAYER.USERNAME).like(likeQuery)) // Оптимизация вместо ILIKE
                 .and(MINECRAFT_PLAYER_PROFILE.PROFILE_ID.ne(profileId))
