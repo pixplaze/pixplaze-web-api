@@ -1,14 +1,11 @@
 package com.pixplaze.api.web.controller;
 
-import com.pixplaze.api.web.data.dto.FriendAddRequest;
-import com.pixplaze.api.web.data.dto.FriendInfo;
 import com.pixplaze.api.web.data.dto.FriendOnlineInfo;
-import com.pixplaze.api.web.data.dto.FriendSearchInfo;
+import com.pixplaze.api.web.data.dto.ProfileFriendship;
 import com.pixplaze.api.web.data.user.ApplicationClientPrincipal;
 import com.pixplaze.api.web.service.FriendService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -29,26 +26,28 @@ public class FriendController {
 
     @Operation(summary = "Друзья со статусом: MUTUAL, OUTGOING, INCOMING")
     @GetMapping
-    public List<FriendInfo> getFriends(@AuthenticationPrincipal ApplicationClientPrincipal principal) {
+    public List<ProfileFriendship> getFriends(@AuthenticationPrincipal ApplicationClientPrincipal principal) {
         return friendService.findFriends(principal.getId());
     }
 
     @Operation(summary = "Поиск профилей по началу имени профиля или ника игрока: от 2 символов, до 20 результатов")
     @GetMapping("/search")
-    public List<FriendSearchInfo> search(
+    public List<ProfileFriendship> search(
             @AuthenticationPrincipal ApplicationClientPrincipal principal,
-            @RequestParam("q") String query
+            @RequestParam("q") String query,
+            @RequestParam(value = "limit", defaultValue = "50") Integer limit,
+            @RequestParam(value = "offset", defaultValue = "0") Integer offset
     ) {
-        return friendService.search(principal.getId(), query);
+        return friendService.search(principal.getId(), query, limit, offset);
     }
 
     @Operation(summary = "Добавить в друзья по имени профиля")
-    @PostMapping
+    @PostMapping("/{profileId}")
     public ResponseEntity<Void> addFriend(
             @AuthenticationPrincipal ApplicationClientPrincipal principal,
-            @RequestBody @Valid FriendAddRequest request
+            @PathVariable Long profileId
     ) {
-        friendService.add(principal.getId(), request.name());
+        friendService.add(principal.getId(), profileId);
         return ResponseEntity.noContent().build();
     }
 

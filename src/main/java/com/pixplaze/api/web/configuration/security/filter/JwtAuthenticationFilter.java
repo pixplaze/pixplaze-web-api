@@ -40,11 +40,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     ) throws ServletException, IOException {
         final var authHeader = request.getHeader(HEADER_NAME);
 
-        if (!isAuthorizationHeaderPresent(authHeader) || isAlreadyAuthenticated()) {
-            filterChain.doFilter(request, response);
-            return;
-        }
-
         try {
             final var token = authHeader.substring(BEARER_PREFIX.length());
             // reader верифицирует подпись и собирает нужный подкласс принципала по ролям токена.
@@ -60,13 +55,25 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             // Невалидный/протухший токен — нормальный клиентский 401, а не серверная ошибка.
             // Тихий WARN с атрибуцией (без стектрейса) и 401 отдаём сами, НЕ пробрасывая исключение
             // в сервлет — иначе DispatcherServlet залогирует полный стек ERROR-ом (шум + вектор log-DoS).
-            log.warn("Rejected request with invalid token: {} {} from {} — {}: {}",
-                    request.getMethod(), request.getRequestURI(), resolveClientIpAddress(request),
-                    e.getClass().getSimpleName(), e.getMessage());
+            log.warn(
+                    "Rejected request with invalid token: {} {} from {} — {}: {}",
+                    request.getMethod(),
+                    request.getRequestURI(),
+                    resolveClientIpAddress(request),
+                    e.getClass().getSimpleName(),
+                    e.getMessage()
+            );
             response.setContentType("application/json;charset=UTF-8");
             // Любой сбой JWT ⇒ 401 в общем ErrorResponse-формате (тот же форматтер, что и MVC-путь).
             exceptionHandlerService.sendErrorResponseInfo(request, response, e, HttpStatus.UNAUTHORIZED);
         }
+    }
+
+    @Override
+    protected boolean shouldNotFilter(@NonNull HttpServletRequest request) {
+        return !isAuthorizationRequired(request) ||
+                !isAuthorizationHeaderPresent(request.getHeader(HEADER_NAME)) ||
+                isAlreadyAuthenticated();
     }
 
     private static boolean isAlreadyAuthenticated() {
@@ -75,6 +82,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private static boolean isAuthorizationHeaderPresent(String authHeader) {
         return StringUtils.isNotEmpty(authHeader) && authHeader.startsWith(BEARER_PREFIX);
+    }
+
+    private static boolean isAuthorizationRequired(HttpServletRequest request) {
+        return !"OPTIONS".equalsIgnoreCase(request.getMethod());
     }
 
     /**

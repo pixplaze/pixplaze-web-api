@@ -8,5 +8,4 @@ package com.pixplaze.api.web.data.dto;
  * @param status         отношение к искавшему: {@code MUTUAL}, {@code OUTGOING}, {@code INCOMING} или
  *                       {@code NONE} — не связаны
  */
-public record FriendSearchInfo(Long profileId, String name, String skinHeadBase64, FriendInfo.Status status) {
-}
+public record ProfileFriendship(Long profileId, String name, String skinHeadBase64, FriendshipStatus status) {}

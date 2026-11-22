@@ -16,8 +16,8 @@ import com.pixplaze.api.web.repository.ProfileRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -75,10 +75,6 @@ public class ProfileService {
                 throw new ConflictException("Email '%s' is already taken!".formatted(request.email()));
             }
             profile.setEmail(request.email());
-        }
-
-        if (request.isOnlineHidden() != null) {
-            profile.setIsOnlineHidden(request.isOnlineHidden());
         }
 
         try {
