@@ -48,14 +48,8 @@ app:
           expiration.days: 30
     cors:
       allowed-origins:
-        - "*"
-      allowed-methods:
-        - GET
-        - POST
-        - PUT
-        - PATCH
-        - DELETE
-        - OPTIONS
-      allowed-headers:
-        - "*"
-      allow-credentials: false
+        - "https://pixplaze.net"
+        - "https://pixplaze.com"
+      allowed-methods: "*"
+      allowed-headers: "*"
+      allow-credentials: true

@@ -49,7 +49,13 @@ services:
       #   condition: service_healthy
     ports:
       - "8080:8080"
+      - "5005:5005"
     environment:
+      # Указываем активный профиль (можно менять динамически)
+      SPRING_PROFILES_ACTIVE: ${PIXPLAZE_WEB_API_PROFILE:-prod}
+      # Говорим Spring Boot искать файлы конфигурации именно в этой папке
+      SPRING_CONFIG_ADDITIONAL_LOCATION: optional:file:/app/config/
+      JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS}
       # Настройки переменных среды для базы данных
       PIXPLAZE_DB_URL: jdbc:postgresql://db:5432/${PIXPLAZE_DB}
       PIXPLAZE_DB_USERNAME: ${PIXPLAZE_DB_USERNAME}
@@ -63,6 +69,7 @@ services:
     volumes:
       # Логи log4j (LOG_DIR=logs → /app/logs): без монтирования пользователь app не может создать каталог в /app
       - ./logs:/app/logs
+      - ./config:/app/config:ro
 
 volumes:
   pixplaze_db_data:

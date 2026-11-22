@@ -62,7 +62,6 @@ public class SecurityConfiguration {
         // ETag каталога прав (GET /auth/permissions) фронт сохраняет и шлёт в If-None-Match
         corsConfiguration.setExposedHeaders(List.of(HttpHeaders.ETAG));
         corsConfiguration.setAllowCredentials(corsProperties.allowCredentials());
-        corsConfiguration.setAllowCredentials(true);
 
         final var corsConfigurationSource = new UrlBasedCorsConfigurationSource();
         corsConfigurationSource.registerCorsConfiguration("/**", corsConfiguration);
@@ -71,8 +70,11 @@ public class SecurityConfiguration {
     }
 
     private void configureHttpRequests(AuthorizeHttpRequestsConfigurer<HttpSecurity>.AuthorizationManagerRequestMatcherRegistry auth) {
+        // Гарантируем, что Spring Security разрешает OPTIONS на любые эндпоинты
+        auth.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll();
+        auth.requestMatchers("/error").permitAll();
         auth.requestMatchers("/auth/device/confirm").authenticated();
-        auth.requestMatchers("/auth/oauth/keys").hasAllAuthorities("SOURCE_MINECRAFT_AUTHORIZED_DEVICE", "ROLE_MINECRAFT_SERVER");
+        auth.requestMatchers("/auth/oauth/keys").hasAnyAuthority("ROLE_SYSTEM", "ROLE_ADMIN", "ROLE_MINECRAFT_SERVER");
         auth.requestMatchers("/auth/**").permitAll();
         auth.requestMatchers("/vouchers/invite/**").permitAll();
         auth.requestMatchers("/error/**").permitAll();
