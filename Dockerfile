@@ -9,7 +9,7 @@
 # Имя jar без версии (finalName в pom), поэтому Dockerfile от версии не зависит.
 # Тег образа задаёт сборка: scripts/build-image.sh или docker build -t pixplaze-web-api:<версия>.
 
-FROM eclipse-temurin:17-jre-jammy
+FROM eclipse-temurin:21-jre-jammy
 
 WORKDIR /app
 

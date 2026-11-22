@@ -1,16 +1,59 @@
 #!/usr/bin/env bash
+
 set -euo pipefail
+umask 077
 
-# Генерирует ES256 (P-256) ключевую пару для подписи токенов и печатает значения
-# Uncomment on macOS openssl=LibreSSL (for compatibility):
-# export PATH="$(brew --prefix openssl@3)/bin:$PATH"
+OUTPUT="${1:-.env}"
 
-openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out priv.pem
-openssl pkey -in priv.pem -pubout -out pub.pem
+#if [[ -e "$OUTPUT" ]]; then
+#    echo "File already exists: $OUTPUT" >&2
+#    exit 1
+#fi
 
-PRIV_B64=$(openssl pkey -in priv.pem -outform DER | base64 | tr -d '\n')
-PUB_B64=$(openssl pkey -pubin -in pub.pem -outform DER | base64 | tr -d '\n')
+TMP_DIR=$(mktemp -d)
 
-echo
-echo "EC_PRIVATE_KEY=${PRIV_B64}"
-echo "EC_PUBLIC_KEY=${PUB_B64}"
+trap 'rm -rf "$TMP_DIR";' EXIT
+
+generate_ec_pair() {
+    local name="$1"
+    local key_file="$TMP_DIR/${name}.pem"
+
+    openssl genpkey \
+        -algorithm EC \
+        -pkeyopt ec_paramgen_curve:prime256v1 \
+        -out "$key_file"
+
+    local private_key
+    local public_key
+
+    # Private: PKCS#8 DER -> Base64
+    private_key=$(
+        openssl pkcs8 \
+            -topk8 \
+            -nocrypt \
+            -in "$key_file" \
+            -outform DER |
+        openssl base64 -A
+    )
+
+    # Public: X.509 SPKI DER -> Base64
+    public_key=$(
+        openssl pkey \
+            -in "$key_file" \
+            -pubout \
+            -outform DER |
+        openssl base64 -A
+    )
+
+    printf '%s_PRIVATE_KEY=%s\n' "$name" "$private_key"
+    printf '%s_PUBLIC_KEY=%s\n' "$name" "$public_key"
+}
+
+{
+    echo "# JWT keys (EC P-256)"
+    generate_ec_pair JWT
+
+    echo
+    echo "# VAPID keys (EC P-256)"
+    generate_ec_pair VAPID
+}
